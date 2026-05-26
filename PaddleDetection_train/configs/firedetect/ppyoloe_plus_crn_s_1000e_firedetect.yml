@@ -1,0 +1,34 @@
+_BASE_: [
+  # 当前长训配置继承 100e 基线：数据集、模型结构、输入尺寸、batch、基础增强都在那个文件里。
+  './ppyoloe_plus_crn_s_100e_firedetect.yml',
+]
+
+# 续训配置：当前 100 epoch 基线结束后，从 model_final 恢复并继续训练到总计 1000 epoch。
+# 注意：PaddleDetection 的 -r 会恢复模型、优化器和已训练 epoch。
+# 调参建议：
+# - 如果验证集 AP/F1 已明显下降，优先用 best_model，不要强行用 model_final。
+# - 小数据集长训容易后期过拟合，epoch 增大时一般要同步降低 base_lr 或加早停观察。
+epoch: 1000
+
+# 1000 epoch 保存太频繁会产生大量 checkpoint；每 25 epoch 评估/保存一次，兼顾安全和磁盘占用。
+# snapshot_epoch 越小，越容易找回最佳点，但磁盘占用更大、评估更频繁。
+snapshot_epoch: 25
+# save_dir 是本配置训练输出目录。不要和 100e 目录混用，避免覆盖 checkpoint。
+save_dir: output/firedetect_ppyoloe_plus_crn_s_1000e
+# weights 这里指默认加载/导出/评估的权重路径；实际续训建议命令行用 -r 恢复断点。
+weights: output/firedetect_ppyoloe_plus_crn_s_1000e/model_final
+
+LearningRate:
+  # 长训阶段降低学习率，避免小数据集后期大幅震荡。
+  # 当前 0.00008 是偏保守微调值：稳定性优先。
+  # - 欠拟合/收敛慢：可试 0.0001~0.00015。
+  # - AP 后期上下剧烈抖动：降到 0.00003~0.00006。
+  base_lr: 0.00008
+  schedulers:
+    # CosineDecay：学习率从 base_lr 平滑衰减到很低，适合长训微调。
+    - name: CosineDecay
+      max_epochs: 1000
+    # LinearWarmup：前 1 个 epoch 从 0 线性升到 base_lr，避免刚恢复训练时梯度冲击。
+    - name: LinearWarmup
+      start_factor: 0.
+      epochs: 1

@@ -1,0 +1,148 @@
+_BASE_: [
+  # 从官方 PP-YOLOE+ CRN-S COCO 配置继承模型结构和默认优化策略。
+  # 本文件只覆盖 FireDetect 赛题相关的数据、类别、输入尺寸、增强、学习率等。
+  '../ppyoloe/ppyoloe_plus_crn_s_80e_coco.yml',
+]
+
+# FireDetect A榜数据只有 405 张图：保留官方 PP-YOLOE+_s 主体，针对小数据和小目标做轻量调整。
+# 当前实际算法：PP-YOLOE+ CRN-S
+# - backbone: CSPResNet，小模型版本由 depth_mult=0.33、width_mult=0.50 控制。
+# - neck: CustomCSPPAN，融合 stride 8/16/32 三层特征，照顾小目标和中大目标。
+# - head: PPYOLOEHead，anchor-free 检测头，训练时用 ATSS/TaskAligned 分配正负样本。
+log_iter: 10
+snapshot_epoch: 5
+save_dir: output/firedetect_ppyoloe_plus_crn_s_100e
+weights: output/firedetect_ppyoloe_plus_crn_s_100e/model_final
+
+# 使用 PaddleDetection 官方 Obj365 预训练权重，比从 COCO 分类头直接迁移更适合小数据微调。
+# 如果换成 COCO 或自己预训练权重，注意类别头会重新初始化，前几轮指标波动正常。
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_s_obj365_pretrained.pdparams
+
+# 使用 COCO 格式评估，因为 prepare 脚本已把 LabelMe 转成 COCO JSON。
+metric: COCO
+# 赛题类别数：battery / board / fire。这里必须和提交 type 映射一致。
+num_classes: 3
+
+TrainDataset:
+  name: COCODataSet
+  # dataset_dir + image_dir + anno_path 会拼成实际路径：
+  # dataset/firedetect/images 和 dataset/firedetect/annotations/train.json。
+  image_dir: images
+  anno_path: annotations/train.json
+  dataset_dir: dataset/firedetect
+  # 数据里有空标注图片，保留它们能减少误检；empty_ratio=1.0 表示全部空图都参与训练。
+  allow_empty: true
+  empty_ratio: 1.0
+  # 检测训练需要图像、框、类别、is_crowd。不要随意删字段。
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+  allow_empty: true
+
+TestDataset:
+  name: ImageFolder
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+
+# 768 是当前第一版折中：比 640 更照顾短边 40-70px 的目标，又比 960 更稳过 FPS。
+# 调参建议：
+# - 小火焰/远处电池漏检多：可试 832 或 896，但 FPS 会下降。
+# - FPS 不够 20：优先退回 704 或 640。
+worker_num: 0
+eval_height: &eval_height 768
+eval_width: &eval_width 768
+eval_size: &eval_size [*eval_height, *eval_width]
+
+TrainReader:
+  sample_transforms:
+    # Decode：读取 jpg 并解码成图像数组。
+    - Decode: {}
+    # RandomDistort：随机亮度/对比度/饱和度等，提升 VR 场景光照泛化。
+    - RandomDistort: {}
+    # RandomCrop：随机裁剪。小数据有帮助，但裁太狠会切掉小目标；漏检变多可降 prob。
+    - RandomCrop: {prob: 0.5}
+    # RandomFlip：水平翻转。VR 目标左右对称，通常安全。
+    - RandomFlip: {}
+  batch_transforms:
+    # 多尺度训练：每个 batch 随机 resize 到一个尺寸。
+    # 上限越大越照顾小目标，下限越小越提升速度和尺度鲁棒；过宽会让训练不稳定。
+    - BatchRandomResize: {target_size: [512, 544, 576, 608, 640, 672, 704, 736, 768, 800, 832, 864], random_size: True, random_interp: True, keep_ratio: False}
+    # 当前导出 infer_cfg 也是 mean=0/std=1/norm_type=none，训练/推理保持一致。
+    # 如果改回 ImageNet mean/std，必须重新训练并确认导出配置一致。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    # HWC -> CHW，Paddle 模型输入格式需要。
+    - Permute: {}
+    # 每个 batch 框数量不同，PadGT 补齐 gt，供 loss 计算。
+    - PadGT: {}
+  # 单卡 batch=4 是显存和稳定性的折中；显存够可试 6/8，并按比例调学习率。
+  batch_size: 4
+  shuffle: true
+  drop_last: true
+  # Windows/本机训练共享内存容易出问题，因此关掉；Linux 服务器可尝试 true 提速。
+  use_shared_memory: false
+  collate_batch: true
+
+EvalReader:
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+TestReader:
+  inputs_def:
+    # 导出静态图输入尺寸。线上推理速度和小目标效果强相关，必须和 Resize 保持一致。
+    image_shape: [3, *eval_height, *eval_width]
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+epoch: 100
+
+LearningRate:
+  # 官方 PP-YOLOE+_s 使用 8*8 batch 的 0.001；这里单卡 batch=4，小数据微调取略高于线性缩放的值。
+  # 调参建议：
+  # - 训练 AP 上不去：可试 0.0003。
+  # - 训练 loss/验证 AP 震荡大：降到 0.0001。
+  base_lr: 0.0002
+  schedulers:
+    # 这里 max_epochs=120 略大于 epoch=100，学习率不会衰减到过低，给短训留余量。
+    - name: CosineDecay
+      max_epochs: 120
+    # warmup 3 轮，小数据+预训练微调比较稳。
+    - name: LinearWarmup
+      start_factor: 0.
+      epochs: 3
+
+OptimizerBuilder:
+  optimizer:
+    # Momentum 是 PP-YOLOE 官方默认优化器之一；momentum 越大越平滑，但响应慢。
+    momentum: 0.9
+    type: Momentum
+  regularizer:
+    # L2 权重衰减。小数据过拟合可略增到 0.0007；欠拟合可降到 0.0003。
+    factor: 0.0005
+    type: L2
+
+PPYOLOEHead:
+  # 前 static_assigner_epoch 轮用 ATSS 静态分配，之后用 TaskAligned 动态分配。
+  # 小数据短训时可适当降低；长训通常 20~30 都可以。
+  static_assigner_epoch: 20
+  nms:
+    name: MultiClassNMS
+    # nms_top_k：每类进入 NMS 前最多保留多少候选框。大一些不容易漏，但慢且可能多误检。
+    nms_top_k: 1000
+    # keep_top_k：NMS 后整图最多保留框数。赛题目标数量不算极端，300 足够。
+    keep_top_k: 300
+    # score_threshold 是模型内部 NMS 前阈值，保持低值，让 predict.py 的 threshold=0.57 做最终过滤。
+    score_threshold: 0.01
+    # nms_threshold 越低，重叠框压得越狠；火焰多个相近目标被合并时可增大到 0.7。
+    nms_threshold: 0.65

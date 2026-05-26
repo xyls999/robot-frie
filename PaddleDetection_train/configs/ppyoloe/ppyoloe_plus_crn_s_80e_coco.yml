@@ -1,0 +1,27 @@
+_BASE_: [
+  # 官方 COCO 数据集定义。FireDetect 配置会覆盖成自己的 COCO JSON。
+  '../datasets/coco_detection.yml',
+  # 运行时配置：日志、保存、设备、评估等默认项。
+  '../runtime.yml',
+  # 官方 80e 优化器/学习率基线。FireDetect 配置会覆盖 LearningRate/OptimizerBuilder。
+  './_base_/optimizer_80e.yml',
+  # PP-YOLOE+ 核心网络结构：CSPResNet + CustomCSPPAN + PPYOLOEHead。
+  './_base_/ppyoloe_plus_crn.yml',
+  # 官方 reader/数据增强。FireDetect 配置会覆盖输入尺寸、增强、batch 等。
+  './_base_/ppyoloe_plus_reader.yml',
+]
+
+# 每 100 iter 打印一次日志；FireDetect 覆盖为 10，方便小数据训练看进度。
+log_iter: 100
+# 每 5 epoch 保存/评估一次 checkpoint。
+snapshot_epoch: 5
+# 官方默认权重路径。FireDetect 会覆盖到自己的 output/firedetect... 目录。
+weights: output/ppyoloe_plus_crn_s_80e_coco/model_final
+
+# Obj365 预训练权重：物体类别更多，给小数据微调更好的通用视觉特征。
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_s_obj365_pretrained.pdparams
+# s 模型缩放系数：
+# depth_mult 控制网络层数/重复块数量，width_mult 控制通道数。
+# 增大能提升上限但更慢、更吃显存；线上 FPS≥20 时不要盲目换 m/l/x。
+depth_mult: 0.33
+width_mult: 0.50

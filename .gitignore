@@ -1,0 +1,36 @@
+# Ignore everything by default.
+*
+
+# Keep the repository rules and submission entrypoint.
+!.gitignore
+!predict.py
+
+# Keep the two PaddleDetection code folders requested for this repo.
+!PaddleDetection/
+!PaddleDetection/**
+!PaddleDetection_train/
+!PaddleDetection_train/**
+
+# Do not commit generated caches.
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Do not commit local training data, checkpoints, logs, or exported artifacts.
+PaddleDetection_train/dataset/
+PaddleDetection_train/output/
+PaddleDetection_train/output_eval/
+PaddleDetection_train/output_inference/
+PaddleDetection_train/vdl_log_dir/
+PaddleDetection_train/bbox.json
+
+# Do not commit nested repository metadata.
+PaddleDetection_train/.git/
+
+# Do not commit packaged submissions or local result files.
+/*.zip
+/result.json
+/analysis/
+/A_train/
+/model/
+/scripts/
