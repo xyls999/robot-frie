@@ -12,7 +12,13 @@
 submission.zip
 ```
 
-同内容版本包：
+同内容最新版本包：
+
+```text
+submission_firedetect_736_clean_all_continue_epoch75_thr040_040_044.zip
+```
+
+上一版保留包：
 
 ```text
 submission_firedetect_736_clean_epoch140_thr040_080_020_nms_area.zip
@@ -36,23 +42,24 @@ submission.zip
 
 ## 当前模型来源
 
-当前 `model/` 使用的是：
+当前 `model/` 使用的是继续训练后的最新最好模型：
 
 ```text
-PaddleDetection_train/output/firedetect_ppyoloe_plus_crn_s_180e_736_clean_kfold_base/best_model.pdparams
+PaddleDetection_train/output/firedetect_ppyoloe_plus_crn_s_80e_736_clean_all_continue_epoch140/best_model.pdparams
 ```
 
 导出目录：
 
 ```text
-PaddleDetection_train/output_inference/export_best_736_clean_kfold0_epoch140_pdmodel/ppyoloe_plus_crn_s_180e_736_clean_kfold_base
+PaddleDetection_train/output_inference/export_best_736_clean_all_continue_epoch75_pdmodel/ppyoloe_plus_crn_s_80e_736_clean_all_continue_epoch140
 ```
 
-该模型来自 clean 5 折 fold0 训练：
+该模型来自 clean all405 继续训练：
 
 ```text
-best epoch = 140
-COCO AP = 0.7224030613
+init model = clean fold0 epoch140 best_model
+best epoch = 75
+COCO AP = 0.9372508112
 ```
 
 ## predict.py 后处理策略
@@ -61,31 +68,30 @@ COCO AP = 0.7224030613
 
 ```text
 battery threshold = 0.40
-board   threshold = 0.80
-fire    threshold = 0.20
+board   threshold = 0.40
+fire    threshold = 0.44
 
-extra class-wise NMS IoU = 0.70
-fire min area = 600
-battery / board min area = 0
+extra class-wise NMS IoU = disabled
+min area = 0 for all classes
 batch size = 16
 ```
 
 本地 405 张原始标签全量评估：
 
 ```text
-mean F1 = 0.970862
-battery F1 = 0.9921
-board   F1 = 0.9565
-fire    F1 = 0.9639
+mean F1 = 0.999296
+battery F1 = 1.0000
+board   F1 = 1.0000
+fire    F1 = 0.9979
 ```
 
 本地正式入口烟测：
 
 ```text
 EXIT = 0
-result_count = 950
-405 张耗时约 14.28 秒
-本机约 28 FPS
+result_count = 927
+405 张耗时约 14.69 秒
+本机约 27.6 FPS
 ```
 
 ## 本地调参脚本

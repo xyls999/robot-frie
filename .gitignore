@@ -42,6 +42,7 @@ PaddleDetection_train/.git/
 !/model/model.pdiparams
 !submission.zip
 !submission_firedetect_736_clean_epoch140_thr040_080_020_nms_area.zip
+!submission_firedetect_736_clean_all_continue_epoch75_thr040_040_044.zip
 !CURRENT_SUBMISSION.md
 !start_generalize_500e_704_training.bat
 !start_clean_180e_736_kfold0_training.bat

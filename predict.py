@@ -381,12 +381,10 @@ if __name__ == '__main__':
     start_time = time.time()
     # 评测提交包约定模型固定放在根目录 model/ 下。
     det_model_path = os.path.join(SCRIPT_DIR, "model")
-    # 分数依赖 F1，按类别设置阈值来拟合官方标注风格：
-    # battery 稳定保召回；board 容易多检，阈值更高；fire 目标多且易漏，阈值更低。
-    thresholds = {"default": 0.38, 1: 0.40, 2: 0.80, 3: 0.20}
-    # 本地全 405 和 fold0 验证：fire 极小框过滤 + 保守额外 NMS 不伤召回，能去掉少量重复/噪声框。
-    min_area = {1: 0.0, 2: 0.0, 3: 600.0}
-    extra_nms_iou = 0.70
+    # 当前 all405 继续训练模型的本地最优阈值。
+    thresholds = {"default": 0.40, 1: 0.40, 2: 0.40, 3: 0.44}
+    min_area = {1: 0.0, 2: 0.0, 3: 0.0}
+    extra_nms_iou = None
     if len(sys.argv) != 3:
         # 评测系统会传入两个参数；本分支只兜底异常调用，仍然保证退出码为 0。
         fallback_path = sys.argv[2] if len(sys.argv) > 2 else "result.json"
