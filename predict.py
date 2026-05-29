@@ -222,7 +222,48 @@ class Detector(object):
         return dict(boxes=np_boxes, boxes_num=np_boxes_num)
 
 
-def append_detection_items(result_items, image_ids, det_results, threshold):
+def iou_xyxy(box_a, box_b):
+    """计算两个 xyxy 框的 IoU，用于提交端额外轻量 NMS。"""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter_w = max(0.0, x2 - x1)
+    inter_h = max(0.0, y2 - y1)
+    inter = inter_w * inter_h
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    denom = area_a + area_b - inter
+    return inter / denom if denom > 0.0 else 0.0
+
+
+def apply_extra_nms(items, nms_iou):
+    """对模型内置 NMS 后的结果再做一层保守 class-wise NMS，只删除高度重叠重复框。"""
+    if nms_iou is None:
+        return items
+    kept_all = []
+    for cls_id in (1, 2, 3):
+        cls_items = [item for item in items if item["type"] == cls_id]
+        cls_items.sort(key=lambda item: item.get("_score", 0.0), reverse=True)
+        kept = []
+        for item in cls_items:
+            box = [item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"]]
+            duplicate = False
+            for old in kept:
+                old_box = [old["x"], old["y"], old["x"] + old["width"], old["y"] + old["height"]]
+                if iou_xyxy(box, old_box) >= nms_iou:
+                    duplicate = True
+                    break
+            if not duplicate:
+                kept.append(item)
+        kept_all.extend(kept)
+    kept_all.sort(key=lambda item: item.get("_order", 0))
+    return kept_all
+
+
+def append_detection_items(result_items, image_ids, det_results, thresholds, min_area, extra_nms_iou):
     """把一个 batch 的 PaddleDetection 输出转成赛题 JSON 条目。"""
     start = 0
     boxes_num = det_results['boxes_num']
@@ -230,6 +271,7 @@ def append_detection_items(result_items, image_ids, det_results, threshold):
     for image_idx, image_id in enumerate(image_ids):
         im_bboxes_num = int(boxes_num[image_idx])
         end = start + im_bboxes_num
+        image_items = []
         if im_bboxes_num > 0:
             bbox_results = boxes[start:end, 2:]
             id_results = boxes[start:end, 0]
@@ -237,7 +279,10 @@ def append_detection_items(result_items, image_ids, det_results, threshold):
             for idx in range(im_bboxes_num):
                 score = float(score_results[idx])
                 cls_id = int(id_results[idx]) + 1
-                if score < threshold or cls_id not in (1, 2, 3):
+                if cls_id not in (1, 2, 3):
+                    continue
+                cls_threshold = thresholds.get(cls_id, thresholds.get("default", 0.38))
+                if score < cls_threshold:
                     continue
                 x1 = float(bbox_results[idx][0])
                 y1 = float(bbox_results[idx][1])
@@ -251,19 +296,34 @@ def append_detection_items(result_items, image_ids, det_results, threshold):
                 height = abs(y2 - y1)
                 if width <= 0.0 or height <= 0.0:
                     continue
-                result_items.append({
+                if width * height < min_area.get(cls_id, 0.0):
+                    continue
+                image_items.append({
                     "image_id": str(image_id),
                     "type": int(cls_id),
                     "x": float(x),
                     "y": float(y),
                     "width": float(width),
                     "height": float(height),
-                    "segmentation": []
+                    "segmentation": [],
+                    "_score": score,
+                    "_order": idx
                 })
+        for item in apply_extra_nms(image_items, extra_nms_iou):
+            item.pop("_score", None)
+            item.pop("_order", None)
+            result_items.append(item)
         start = end
 
 
-def predict_image(detector, image_list, result_path, threshold, batch_size=16):
+def predict_image(
+        detector,
+        image_list,
+        result_path,
+        thresholds,
+        min_area,
+        extra_nms_iou,
+        batch_size=16):
     """按 batch 推理，并按赛题指定 JSON schema 写出结果。"""
     result_items = []
     batch_images = []
@@ -275,7 +335,8 @@ def predict_image(detector, image_list, result_path, threshold, batch_size=16):
             return
         inputs = create_inputs(batch_images, batch_infos)
         det_results = detector.predict(inputs)
-        append_detection_items(result_items, batch_ids, det_results, threshold)
+        append_detection_items(
+            result_items, batch_ids, det_results, thresholds, min_area, extra_nms_iou)
         batch_images.clear()
         batch_infos.clear()
         batch_ids.clear()
@@ -308,20 +369,24 @@ def predict_image(detector, image_list, result_path, threshold, batch_size=16):
     print("Results written to", result_path)
 
 
-def main(infer_txt, result_path, det_model_path, threshold):
+def main(infer_txt, result_path, det_model_path, thresholds, min_area, extra_nms_iou):
     """评测入口的主流程：加载配置和模型，读取图片列表，生成结果文件。"""
     pred_config = PredictConfig(det_model_path)
     detector = Detector(pred_config, det_model_path)
     img_list = get_test_images(infer_txt)
-    predict_image(detector, img_list, result_path, threshold)
+    predict_image(detector, img_list, result_path, thresholds, min_area, extra_nms_iou)
 
 
 if __name__ == '__main__':
     start_time = time.time()
     # 评测提交包约定模型固定放在根目录 model/ 下。
     det_model_path = os.path.join(SCRIPT_DIR, "model")
-    # 分数依赖 F1，可在验证集上调这个阈值平衡 precision/recall。
-    threshold = 0.38
+    # 分数依赖 F1，按类别设置阈值来拟合官方标注风格：
+    # battery 稳定保召回；board 容易多检，阈值更高；fire 目标多且易漏，阈值更低。
+    thresholds = {"default": 0.38, 1: 0.40, 2: 0.80, 3: 0.20}
+    # 本地全 405 和 fold0 验证：fire 极小框过滤 + 保守额外 NMS 不伤召回，能去掉少量重复/噪声框。
+    min_area = {1: 0.0, 2: 0.0, 3: 600.0}
+    extra_nms_iou = 0.70
     if len(sys.argv) != 3:
         # 评测系统会传入两个参数；本分支只兜底异常调用，仍然保证退出码为 0。
         fallback_path = sys.argv[2] if len(sys.argv) > 2 else "result.json"
@@ -334,7 +399,7 @@ if __name__ == '__main__':
         # Paddle Inference 静态图模型需要启用静态图模式。
         init_runtime()
         paddle.enable_static()
-        main(infer_txt, result_path, det_model_path, threshold)
+        main(infer_txt, result_path, det_model_path, thresholds, min_area, extra_nms_iou)
         print('total time:', time.time() - start_time)
     except Exception:
         # 任何 Python 层异常都写出合法空结果，避免评测系统因非 0 返回码直接判失败。

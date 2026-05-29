@@ -8,8 +8,8 @@ Preprocess:
 - interp: 2
   keep_ratio: false
   target_size:
-  - 704
-  - 704
+  - 736
+  - 736
   type: Resize
 - mean:
   - 0.0

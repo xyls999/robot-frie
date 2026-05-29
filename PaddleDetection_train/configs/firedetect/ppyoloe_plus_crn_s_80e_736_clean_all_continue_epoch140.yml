@@ -1,0 +1,114 @@
+_BASE_: [
+  '../ppyoloe/ppyoloe_plus_crn_s_80e_coco.yml',
+]
+
+# FireDetect final clean fine-tuning config.
+# Purpose:
+# - Continue from the current best clean fold0 model.
+# - Use all original 405 images from dataset/firedetect/annotations/all.json.
+# - Do not use generated augmentation images.
+# - Use a low learning rate to gently adapt to the full official-style labels.
+
+log_iter: 10
+snapshot_epoch: 5
+save_dir: output/firedetect_ppyoloe_plus_crn_s_80e_736_clean_all_continue_epoch140
+weights: output/firedetect_ppyoloe_plus_crn_s_80e_736_clean_all_continue_epoch140/model_final
+
+pretrain_weights: output/firedetect_ppyoloe_plus_crn_s_180e_736_clean_kfold_base/best_model.pdparams
+
+metric: COCO
+num_classes: 3
+
+TrainDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/all.json
+  dataset_dir: dataset/firedetect
+  allow_empty: true
+  empty_ratio: 1.0
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+  allow_empty: true
+
+TestDataset:
+  name: ImageFolder
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+
+worker_num: 0
+eval_height: &eval_height 736
+eval_width: &eval_width 736
+eval_size: &eval_size [*eval_height, *eval_width]
+
+TrainReader:
+  sample_transforms:
+    - Decode: {}
+    - RandomDistort: {prob: 0.10}
+    - RandomFlip: {prob: 0.5}
+  batch_transforms:
+    - BatchRandomResize: {target_size: [704, 736, 768], random_size: True, random_interp: True, keep_ratio: False}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+    - PadGT: {}
+  batch_size: 4
+  shuffle: true
+  drop_last: false
+  use_shared_memory: false
+  collate_batch: true
+
+EvalReader:
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+TestReader:
+  inputs_def:
+    image_shape: [3, *eval_height, *eval_width]
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+epoch: 80
+
+LearningRate:
+  base_lr: 0.00008
+  schedulers:
+    - name: CosineDecay
+      max_epochs: 80
+    - name: LinearWarmup
+      start_factor: 0.2
+      epochs: 1
+
+OptimizerBuilder:
+  optimizer:
+    momentum: 0.9
+    type: Momentum
+  regularizer:
+    factor: 0.00015
+    type: L2
+
+PPYOLOEHead:
+  static_assigner_epoch: 10
+  loss_weight: {class: 1.15, iou: 2.7, dfl: 0.85}
+  assigner:
+    name: TaskAlignedAssigner
+    topk: 13
+    alpha: 1.0
+    beta: 6.0
+  nms:
+    name: MultiClassNMS
+    nms_top_k: 1200
+    keep_top_k: 400
+    score_threshold: 0.001
+    nms_threshold: 0.75

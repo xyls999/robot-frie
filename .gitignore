@@ -40,6 +40,10 @@ PaddleDetection_train/.git/
 !/model/infer_cfg.yml
 !/model/model.pdmodel
 !/model/model.pdiparams
-!submission_firedetect_704_generalize_best_thr038_fastnms.zip
+!submission.zip
+!submission_firedetect_736_clean_epoch140_thr040_080_020_nms_area.zip
 !CURRENT_SUBMISSION.md
 !start_generalize_500e_704_training.bat
+!start_clean_180e_736_kfold0_training.bat
+!start_continue_80e_736_clean_all_epoch140.bat
+!firedetect_local_tune.py
