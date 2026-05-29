@@ -1,0 +1,14 @@
+_BASE_: [
+  './ppyoloe_plus_crn_s_500e_704_generalize_firedetect.yml',
+]
+
+# 704 泛化模型提交导出版：
+# 不重训，只调整导出时的 NMS，减少后处理耗时。
+# predict.py 最终使用 threshold=0.38，因此这里无需保留大量极低分候选。
+PPYOLOEHead:
+  nms:
+    name: MultiClassNMS
+    nms_top_k: 500
+    keep_top_k: 120
+    score_threshold: 0.03
+    nms_threshold: 0.75

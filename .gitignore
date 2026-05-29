@@ -34,3 +34,12 @@ PaddleDetection_train/.git/
 /A_train/
 /model/
 /scripts/
+
+# Keep the current evaluated submission artifacts.
+!/model/
+!/model/infer_cfg.yml
+!/model/model.pdmodel
+!/model/model.pdiparams
+!submission_firedetect_704_generalize_best_thr038_fastnms.zip
+!CURRENT_SUBMISSION.md
+!start_generalize_500e_704_training.bat

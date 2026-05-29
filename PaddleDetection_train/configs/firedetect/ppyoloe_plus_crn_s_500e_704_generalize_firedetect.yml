@@ -1,0 +1,128 @@
+_BASE_: [
+  '../ppyoloe/ppyoloe_plus_crn_s_80e_coco.yml',
+]
+
+# FireDetect A_train 泛化训练配置
+# 目的：不再单纯记忆 405 张图，而是学习 VR 场景下 battery / board / fire 的标注规律。
+# 依据：analysis/visual_report_405/report.md
+# - fire 框最多且小框多：需要保召回，输入不能太小。
+# - board 样本少但边缘纹理强：需要保留结构特征，增强不能破坏边界。
+# - 空图占 28.9%：必须保留空样本，避免亮色背景误检。
+# - 视频帧相邻相似：训练和验证要分开，不再 all.json 自己考自己。
+
+log_iter: 10
+snapshot_epoch: 25
+save_dir: output/firedetect_ppyoloe_plus_crn_s_500e_704_generalize
+weights: output/firedetect_ppyoloe_plus_crn_s_500e_704_generalize/model_final
+
+# 使用 Obj365 预训练，目标种类和场景泛化通常比从零训练更稳。
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_s_obj365_pretrained.pdparams
+
+metric: COCO
+num_classes: 3
+
+TrainDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/train.json
+  dataset_dir: dataset/firedetect
+  allow_empty: true
+  # 空图有价值，但正样本更少；0.8 表示保留大多数空图，同时略微提高正样本出现频率。
+  empty_ratio: 0.8
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+  allow_empty: true
+
+TestDataset:
+  name: ImageFolder
+  anno_path: annotations/val.json
+  dataset_dir: dataset/firedetect
+
+worker_num: 0
+eval_height: &eval_height 704
+eval_width: &eval_width 704
+eval_size: &eval_size [*eval_height, *eval_width]
+
+TrainReader:
+  sample_transforms:
+    - Decode: {}
+    # 轻量颜色扰动：模拟 VR 光照/火焰亮度变化，但不过度扭曲颜色。
+    - RandomDistort: {prob: 0.35}
+    # 左右翻转通常不改变三类目标语义，适合扩大视角变化。
+    - RandomFlip: {prob: 0.5}
+  batch_transforms:
+    # 以 704 为中心的温和多尺度训练。
+    # 不使用 512/544 这类太小尺寸，避免把 fire/battery 小框压没。
+    - BatchRandomResize: {target_size: [640, 672, 704, 736, 768], random_size: True, random_interp: True, keep_ratio: False}
+    # 和当前 predict.py / infer_cfg 路线保持一致：输入仍是 0-255，mean=0/std=1。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+    - PadGT: {}
+  batch_size: 6
+  shuffle: true
+  drop_last: true
+  use_shared_memory: false
+  collate_batch: true
+
+EvalReader:
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+TestReader:
+  inputs_def:
+    image_shape: [3, *eval_height, *eval_width]
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+epoch: 500
+
+LearningRate:
+  # batch=6，比 batch=4 略大；学习率取中等偏稳，避免小数据被冲坏。
+  base_lr: 0.00030
+  schedulers:
+    - name: CosineDecay
+      max_epochs: 500
+    - name: LinearWarmup
+      start_factor: 0.
+      epochs: 5
+
+OptimizerBuilder:
+  optimizer:
+    momentum: 0.9
+    type: Momentum
+  regularizer:
+    # 比记忆配置更强一点的 L2，防止 405 张小数据训练过头。
+    factor: 0.0002
+    type: L2
+
+PPYOLOEHead:
+  # 前期用静态分配稳定训练，之后 TaskAligned 学更精细的正样本。
+  static_assigner_epoch: 30
+  # 类别不均衡且 fire 小框多：略加分类权重，保持召回。
+  loss_weight: {class: 1.2, iou: 2.7, dfl: 0.85}
+  assigner:
+    name: TaskAlignedAssigner
+    # topk 适当加大，给小目标更多正样本，减少漏检。
+    topk: 15
+    alpha: 1.0
+    beta: 6.0
+  nms:
+    name: MultiClassNMS
+    # 训练/导出时保留足够候选，最终线上阈值再由 predict.py 控制。
+    nms_top_k: 1200
+    keep_top_k: 400
+    score_threshold: 0.001
+    nms_threshold: 0.75
