@@ -12,10 +12,10 @@
 submission.zip
 ```
 
-同内容最新版本包：
+当前 `submission.zip` 已更新为稳定推理版：
 
 ```text
-submission_firedetect_736_clean_all_continue_epoch75_thr040_040_044.zip
+all405 epoch75 model + batch size 8 + thresholds 0.40 / 0.40 / 0.44
 ```
 
 上一版保留包：
@@ -73,7 +73,7 @@ fire    threshold = 0.44
 
 extra class-wise NMS IoU = disabled
 min area = 0 for all classes
-batch size = 16
+batch size = 8
 ```
 
 本地 405 张原始标签全量评估：
@@ -90,8 +90,8 @@ fire    F1 = 0.9979
 ```text
 EXIT = 0
 result_count = 927
-405 张耗时约 14.69 秒
-本机约 27.6 FPS
+405 张耗时约 14.96 秒
+本机约 27.1 FPS
 ```
 
 ## 本地调参脚本
