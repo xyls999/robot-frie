@@ -44,7 +44,10 @@ PaddleDetection_train/.git/
 !submission_firedetect_736_clean_epoch140_thr040_080_020_nms_area.zip
 !submission_firedetect_736_clean_all_continue_epoch75_thr040_040_044.zip
 !CURRENT_SUBMISSION.md
+!HOLDOUT_VALIDATION.md
 !start_generalize_500e_704_training.bat
 !start_clean_180e_736_kfold0_training.bat
 !start_continue_80e_736_clean_all_epoch140.bat
+!start_holdout_180e_736_fold0_training.bat
+!start_holdout_220e_736_final355_training.bat
 !firedetect_local_tune.py
