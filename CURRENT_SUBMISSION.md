@@ -15,7 +15,7 @@ submission.zip
 当前 `submission.zip` 已更新为最新 train 结束版本：
 
 ```text
-holdout_fold0 best epoch40 model + batch size 8 + thresholds 0.34 / 0.76 / 0.58
+holdout_fold0 best epoch40 model + batch size 16 + thresholds 0.34 / 0.76 / 0.58
 ```
 
 上一版保留包：
@@ -74,7 +74,7 @@ fire    threshold = 0.58
 
 extra class-wise NMS IoU = disabled
 min area = 0 for all classes
-batch size = 8
+batch size = 16
 ```
 
 本地 405 张原始标签全量评估：
@@ -91,8 +91,8 @@ fire    F1 = 0.9140
 ```text
 EXIT = 0
 result_count = 973
-405 张耗时约 17.94 秒
-本机约 22.6 FPS
+405 张耗时约 14.65 秒
+本机约 27.6 FPS
 永久 holdout mean F1 = 0.892466
 ```
 

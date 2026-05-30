@@ -323,7 +323,7 @@ def predict_image(
         thresholds,
         min_area,
         extra_nms_iou,
-        batch_size=8):
+        batch_size=16):
     """按 batch 推理，并按赛题指定 JSON schema 写出结果。"""
     result_items = []
     batch_images = []
