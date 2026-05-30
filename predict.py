@@ -381,8 +381,8 @@ if __name__ == '__main__':
     start_time = time.time()
     # 评测提交包约定模型固定放在根目录 model/ 下。
     det_model_path = os.path.join(SCRIPT_DIR, "model")
-    # 当前 all405 继续训练模型的本地最优阈值。
-    thresholds = {"default": 0.40, 1: 0.40, 2: 0.40, 3: 0.44}
+    # 最新 train 结束版本：holdout_fold0 best epoch40 的本地最优阈值。
+    thresholds = {"default": 0.38, 1: 0.34, 2: 0.76, 3: 0.58}
     min_area = {1: 0.0, 2: 0.0, 3: 0.0}
     extra_nms_iou = None
     if len(sys.argv) != 3:
