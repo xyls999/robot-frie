@@ -1,0 +1,27 @@
+_BASE_: [
+  # 完全复刻第一次最优路线：继承原始 100e/recall 基线里的数据、832 输入、多尺度增强、batch、PPYOLOEHead 等。
+  './ppyoloe_plus_crn_s_100e_firedetect.yml',
+]
+
+# first-replay 配置：
+# 目的：不再走 holdout_fold0/736/弱增强路线，而是回到第一次更像线上有效的配置。
+# 关键点：
+# - 数据：继承原始 train.json / val.json，不使用 holdout_kfold。
+# - 输入：继承 832 x 832。
+# - 增强：继承第一次基线的 RandomDistort、RandomCrop 0.2、RandomFlip、多尺度 640~896。
+# - 模型：PP-YOLOE+ CRN-S + Obj365 预训练。
+# - 训练：1000 epoch + 0.00015 cosine 长训。
+epoch: 1000
+
+snapshot_epoch: 25
+save_dir: output/firedetect_ppyoloe_plus_crn_s_1000e_832_first_replay
+weights: output/firedetect_ppyoloe_plus_crn_s_1000e_832_first_replay/model_final
+
+LearningRate:
+  base_lr: 0.00015
+  schedulers:
+    - name: CosineDecay
+      max_epochs: 1000
+    - name: LinearWarmup
+      start_factor: 0.
+      epochs: 1

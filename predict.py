@@ -125,14 +125,14 @@ def load_predictor(model_dir):
     )
     # 评测要求 FPS，默认走 GPU；显存池设小一些，避免部分评测机初始化失败。
     if paddle.device.is_compiled_with_cuda():
-        config.enable_use_gpu(1000, 0)
+        config.enable_use_gpu(500, 0)
     else:
         config.disable_gpu()
         config.set_cpu_math_library_num_threads(2)
     # 稳定性优先：部分评测环境下 PP-YOLOE 静态图开启 IR 优化可能触发底层崩溃。
     config.switch_ir_optim(False)
     config.disable_glog_info()
-    config.enable_memory_optim()
+    # 不启用内存复用优化：模型很小，换取评测机上更稳定的 Paddle Inference 行为。
     # 使用 zero-copy API 手动拷贝输入输出张量，避免老式 feed/fetch 接口。
     config.switch_use_feed_fetch_ops(False)
     try:
@@ -146,7 +146,7 @@ def load_predictor(model_dir):
         config.set_cpu_math_library_num_threads(2)
         config.switch_ir_optim(False)
         config.disable_glog_info()
-        config.enable_memory_optim()
+        # CPU 兜底同样不启用内存复用优化。
         config.switch_use_feed_fetch_ops(False)
         predictor = create_predictor(config)
     return predictor, config
@@ -323,7 +323,7 @@ def predict_image(
         thresholds,
         min_area,
         extra_nms_iou,
-        batch_size=16):
+        batch_size=4):
     """按 batch 推理，并按赛题指定 JSON schema 写出结果。"""
     result_items = []
     batch_images = []
@@ -381,9 +381,10 @@ if __name__ == '__main__':
     start_time = time.time()
     # 评测提交包约定模型固定放在根目录 model/ 下。
     det_model_path = os.path.join(SCRIPT_DIR, "model")
-    # 最新 train 结束版本：holdout_fold0 best epoch40 的本地最优阈值。
-    thresholds = {"default": 0.38, 1: 0.34, 2: 0.76, 3: 0.58}
+    # clone1000e best epoch150：405 全量按比赛 mean-F1 扫描得到的类别阈值。
+    thresholds = {"default": 0.38, 1: 0.33, 2: 0.42, 3: 0.49}
     min_area = {1: 0.0, 2: 0.0, 3: 0.0}
+    # 常规稳妥版不叠加额外 NMS，只使用导出模型自身的 NMS。
     extra_nms_iou = None
     if len(sys.argv) != 3:
         # 评测系统会传入两个参数；本分支只兜底异常调用，仍然保证退出码为 0。
