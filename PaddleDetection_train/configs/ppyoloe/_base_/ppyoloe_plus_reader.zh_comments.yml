@@ -1,0 +1,40 @@
+worker_num: 4  # 中文备注：PP-YOLOE+ 默认 reader 配置；二次训练主配置会覆盖增强和输入尺寸。
+eval_height: &eval_height 640  # 中文备注：验证和导出输入高度；当前固定 768 以保护小目标召回。
+eval_width: &eval_width 640  # 中文备注：验证和导出输入宽度；当前固定 768 与安全基线保持一致。
+eval_size: &eval_size [*eval_height, *eval_width]  # 中文备注：验证/测试 Resize 使用的尺寸数组；由 eval_height 和 eval_width 组成。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+TrainReader:  # 中文备注：训练数据读取与增强流水线；决定 Decode、增强、多尺度和 batch 处理。
+  sample_transforms:  # 中文备注：单张图片级 transform；通常包含 Decode、颜色扰动、翻转等。
+    - Decode: {}  # 中文备注：读取并解码图片；所有训练/验证/测试流水线的第一步。
+    - RandomDistort: {}  # 中文备注：颜色扰动增强；当前低概率 0.10，避免过强扰动火焰颜色特征。
+    - RandomExpand: {fill_value: [123.675, 116.28, 103.53]}  # 中文备注：列表项，表示一个配置步骤、transform 或参数值。
+    - RandomCrop: {}  # 中文备注：列表项，表示一个配置步骤、transform 或参数值。
+    - RandomFlip: {}  # 中文备注：水平翻转增强；用于增强左右边缘 board 的覆盖。
+  batch_transforms:  # 中文备注：batch 级 transform；通常包含多尺度 Resize、归一化、维度变换和 PadGT。
+    - BatchRandomResize: {target_size: [320, 352, 384, 416, 448, 480, 512, 544, 576, 608, 640, 672, 704, 736, 768], random_size: True, random_interp: True, keep_ratio: False}  # 中文备注：训练多尺度策略；[736,768,800] 偏高尺寸，目标是提升小火焰召回。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：归一化配置；当前 mean=0、std=1，保持 PaddleDetection 导出链路一致。
+    - Permute: {}  # 中文备注：通道维度变换；把 HWC 图像转换成模型需要的 CHW 格式。
+    - PadGT: {}  # 中文备注：对 GT 框进行 padding；保证一个 batch 内不同目标数量可以对齐。
+  batch_size: 8  # 中文备注：batch 图片数量；当前为 4，兼顾显存、速度和小数据训练稳定性。
+  shuffle: true  # 中文备注：训练是否打乱样本；打开可以减少视频帧顺序带来的偏差。
+  drop_last: true  # 中文备注：是否丢弃最后不足 batch 的样本；训练时打开可稳定 batch 形状。
+  use_shared_memory: true  # 中文备注：是否使用共享内存；Windows 环境关闭更稳，减少 DataLoader 问题。
+  collate_batch: true  # 中文备注：是否组装 batch；检测任务需要打开以处理多张图片输入。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+EvalReader:  # 中文备注：验证阶段预处理流水线；不做随机增强，只做确定性 Resize/Normalize/Permute。
+  sample_transforms:  # 中文备注：单张图片级 transform；通常包含 Decode、颜色扰动、翻转等。
+    - Decode: {}  # 中文备注：读取并解码图片；所有训练/验证/测试流水线的第一步。
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}  # 中文备注：固定尺寸缩放；验证/测试阶段不能随机，保证指标可复现。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：归一化配置；当前 mean=0、std=1，保持 PaddleDetection 导出链路一致。
+    - Permute: {}  # 中文备注：通道维度变换；把 HWC 图像转换成模型需要的 CHW 格式。
+  batch_size: 2  # 中文备注：batch 图片数量；当前为 4，兼顾显存、速度和小数据训练稳定性。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+TestReader:  # 中文备注：导出和推理阶段预处理流水线；必须与 predict.py 和 infer_cfg 保持一致。
+  inputs_def:  # 中文备注：导出静态模型输入定义；决定最终 model.pdmodel 的输入形状。
+    image_shape: [3, *eval_height, *eval_width]  # 中文备注：导出模型的固定输入 shape；[3,768,768] 对应 CHW 格式。
+  sample_transforms:  # 中文备注：单张图片级 transform；通常包含 Decode、颜色扰动、翻转等。
+    - Decode: {}  # 中文备注：读取并解码图片；所有训练/验证/测试流水线的第一步。
+    - Resize: {target_size: *eval_size, keep_ratio: False, interp: 2}  # 中文备注：固定尺寸缩放；验证/测试阶段不能随机，保证指标可复现。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：归一化配置；当前 mean=0、std=1，保持 PaddleDetection 导出链路一致。
+    - Permute: {}  # 中文备注：通道维度变换；把 HWC 图像转换成模型需要的 CHW 格式。
+  batch_size: 1  # 中文备注：batch 图片数量；当前为 4，兼顾显存、速度和小数据训练稳定性。

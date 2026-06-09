@@ -1,18 +1,18 @@
-epoch: 80
-
-LearningRate:
-  base_lr: 0.001
-  schedulers:
-    - name: CosineDecay
-      max_epochs: 96
-    - name: LinearWarmup
-      start_factor: 0.
-      epochs: 5
-
-OptimizerBuilder:
-  optimizer:
-    momentum: 0.9
-    type: Momentum
-  regularizer:
-    factor: 0.0005
-    type: L2
+epoch: 80  # 中文备注：官方 80e 优化器配置；二次训练主配置会覆盖学习率和正则。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+LearningRate:  # 中文备注：学习率配置块；微调强模型时需要小学习率防止破坏已有能力。
+  base_lr: 0.001  # 中文备注：基础学习率；当前 4e-5 是从 0.907 best 继续微调的低风险设置。
+  schedulers:  # 中文备注：学习率调度器列表；这里组合 CosineDecay 和 LinearWarmup。
+    - name: CosineDecay  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+      max_epochs: 96  # 中文备注：学习率调度覆盖的 epoch 数；应与 epoch 保持一致。
+    - name: LinearWarmup  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+      start_factor: 0.  # 中文备注：warmup 起始比例；0 表示从很低学习率开始升到 base_lr。
+      epochs: 5  # 中文备注：调度器持续轮数；在 warmup 中表示升温 epoch 数。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+OptimizerBuilder:  # 中文备注：优化器构建配置；定义 Momentum 优化器和 L2 正则。
+  optimizer:  # 中文备注：优化器参数块；控制权重更新方式。
+    momentum: 0.9  # 中文备注：动量系数；用于平滑梯度更新并提升收敛稳定性。
+    type: Momentum  # 中文备注：组件类型字段；告诉 PaddleDetection 创建哪一种优化器、正则或 transform。
+  regularizer:  # 中文备注：正则化参数块；控制权重衰减防止小数据过拟合。
+    factor: 0.0005  # 中文备注：L2 正则强度；0.0002 是比 0.907 原始长训更温和的微调设置。
+    type: L2  # 中文备注：组件类型字段；告诉 PaddleDetection 创建哪一种优化器、正则或 transform。

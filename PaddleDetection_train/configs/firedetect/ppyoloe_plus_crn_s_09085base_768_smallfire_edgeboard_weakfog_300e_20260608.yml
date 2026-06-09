@@ -1,0 +1,123 @@
+_BASE_: [  # 中文备注：主配置继承列表，先加载 PP-YOLOE+ CRN-S 官方基础配置，再用本文件覆盖 FireDetect 训练参数。
+  '../ppyoloe/ppyoloe_plus_crn_s_80e_coco.yml',  # 中文备注：继承 PP-YOLOE+ CRN-S 的网络、优化器、reader、runtime 等默认配置。
+]  # 中文备注：继承列表结束，本文件后续字段会覆盖基础配置中的同名字段。
+# 中文备注：分隔行，用于把继承配置和本次实验说明分开。
+# 中文备注：本配置用于从 0.9085 包同源模型继续做二次微调实验。
+# 中文备注：0.9085.zip 的哈希与 rerun best 提交包一致，因此这里使用对应的训练态 checkpoint 作为初始化。
+# 中文备注：训练时使用训练态 pdparams，不直接使用导出的静态推理 pdiparams，降低加载不匹配风险。
+# 中文备注：实验目标改为短训低学习率，减少对 355 张噪声标注的过拟合。
+# 中文备注：分隔行，用于把实验说明和日志保存设置分开。
+log_iter: 10  # 中文备注：每 10 个 iteration 打印一次训练日志，方便小数据集上密集观察 loss 和速度。
+snapshot_epoch: 1  # 中文备注：每 1 个 epoch 保存并评估一次模型，便于从短训早期抓取最佳 checkpoint。
+save_dir: output/firedetect_ppyoloe_plus_crn_s_09085base_768_noise_robust_short_30e_20260608  # 中文备注：本次 0.9085 噪声鲁棒短训的输出目录，避免覆盖旧 300e 输出。
+weights: output/firedetect_ppyoloe_plus_crn_s_09085base_768_noise_robust_short_30e_20260608/model_final  # 中文备注：评估或导出默认读取的最终权重路径。
+pretrain_weights: output/firedetect_ppyoloe_plus_crn_s_0907base_768_smallfire_edgeboard_jump_holdout_rerun_20260606_002933/best_model.pdparams  # 中文备注：初始化权重，指向 0.9085 包对应 rerun best 的训练态 best_model。
+# 中文备注：分隔行，用于把保存路径和基础任务信息分开。
+metric: COCO  # 中文备注：使用 COCO 检测指标评估 bbox AP，与 PaddleDetection 默认检测评估流程一致。
+num_classes: 3  # 中文备注：FireDetect 共有 3 个类别，分别对应 battery、board、fire。
+# 中文备注：分隔行，用于把任务信息和训练数据集配置分开。
+TrainDataset:  # 中文备注：训练集配置块，定义训练图片、标注和空图采样策略。
+  name: COCODataSet  # 中文备注：训练数据按 COCO JSON 格式读取。
+  image_dir: images  # 中文备注：训练图片目录，相对于 dataset_dir。
+  anno_path: annotations/jump_holdout_20260605/train.json  # 中文备注：训练标注文件，使用 jump holdout 切分中的 355 张训练图。
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore  # 中文备注：训练数据根目录，包含 images 和 annotations。
+  allow_empty: true  # 中文备注：允许读取无目标图片，保留背景负样本以控制误检。
+  empty_ratio: 0.6  # 中文备注：空图采样比例从 0.8 降到 0.6，减少漏标样本把真实目标当背景压制的风险。
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']  # 中文备注：训练阶段需要读取图像、框、类别和 crowd 标记。
+# 中文备注：分隔行，用于把训练集和验证集配置分开。
+EvalDataset:  # 中文备注：验证集配置块，用于每次 snapshot 后计算 AP。
+  name: COCODataSet  # 中文备注：验证数据同样按 COCO JSON 格式读取。
+  image_dir: images  # 中文备注：验证图片目录，相对于 dataset_dir。
+  anno_path: annotations/jump_holdout_20260605/val.json  # 中文备注：验证标注文件，使用 jump holdout 的 50 张验证图。
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore  # 中文备注：验证数据根目录，与训练集一致。
+  allow_empty: true  # 中文备注：允许验证集中存在无目标图片，保证评估分布与数据真实情况一致。
+# 中文备注：分隔行，用于把验证集和测试集配置分开。
+TestDataset:  # 中文备注：测试集配置块，主要供导出或预测流程读取输入定义。
+  name: ImageFolder  # 中文备注：测试阶段按图片文件夹方式读取。
+  anno_path: annotations/jump_holdout_20260605/test.json  # 中文备注：测试占位标注路径，保持与当前数据切分目录一致。
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore  # 中文备注：测试数据根目录，沿用 FireDetect restored 数据集。
+# 中文备注：分隔行，用于把数据集配置和输入尺寸配置分开。
+worker_num: 0  # 中文备注：Windows 下数据加载 worker 设为 0，减少多进程数据读取不稳定风险。
+eval_height: &eval_height 768  # 中文备注：验证和导出高度固定为 768，对齐当前安全提交模型输入尺寸。
+eval_width: &eval_width 768  # 中文备注：验证和导出宽度固定为 768，保持宽高一致。
+eval_size: &eval_size [*eval_height, *eval_width]  # 中文备注：复用 768×768 输入尺寸，供 Resize 和 TestReader 引用。
+# 中文备注：分隔行，用于把尺寸配置和训练 reader 配置分开。
+TrainReader:  # 中文备注：训练数据读取与增强配置块。
+  sample_transforms:  # 中文备注：逐张图片执行的增强列表，在 batch 拼接前运行。
+    - Decode: {}  # 中文备注：解码图片为数组，是所有图像增强的前置步骤。
+    # 中文备注：取消偏暗黑雾增强，只保留极低概率的轻颜色扰动，避免破坏 0.9085 已学到的火焰外观。
+    # 中文备注：RandomDistort 的第三个值是内部跳过概率，数值越高表示该子扰动越不容易实际执行。
+    - RandomDistort:  # 中文备注：颜色扰动增强块，本次用于轻微泛化，不再主动压暗画面。
+        prob: 0.05  # 中文备注：整张图进入颜色扰动的概率为 0.05，显著弱于旧 weakfog 的 0.22。
+        brightness: [0.85, 1.15, 0.50]  # 中文备注：亮度只做轻微上下浮动，避免过多暗化火焰和电池细节。
+        contrast: [0.85, 1.15, 0.60]  # 中文备注：对比度只做轻微扰动，降低雾化增强对定位质量的影响。
+        saturation: [0.85, 1.15, 0.70]  # 中文备注：饱和度大概率跳过，保护 fire 类颜色特征。
+        hue: [-4, 4, 0.95]  # 中文备注：色相扰动范围极小且几乎跳过，防止类别颜色漂移。
+        random_apply: false  # 中文备注：固定顺序执行颜色扰动，方便控制增强强度。
+    # 中文备注：水平翻转用于补充左右边缘目标分布，尤其针对边缘 board 漏检问题。
+    - RandomFlip: {prob: 0.01}  # 中文备注：以 0.01 概率水平翻转，不改变目标尺度，只增加左右方向泛化。
+  batch_transforms:  # 中文备注：batch 级增强和预处理列表，在组 batch 后执行。
+    # 中文备注：窄范围高分辨率多尺度训练，保护小火焰细节，同时接近 768 导出尺寸。
+    - BatchRandomResize: {target_size: [736, 768, 800], random_size: true, random_interp: true, keep_ratio: false}  # 中文备注：训练时随机选择 736、768、800，保持不等比填充逻辑与导出一致。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：不做均值方差归一化，沿用当前 PP-YOLOE FireDetect 安全推理链。
+    - Permute: {}  # 中文备注：把图像通道顺序转换为模型需要的 CHW 格式。
+    - PadGT: {}  # 中文备注：对不同图片的目标框数量做 padding，便于 batch 训练。
+  batch_size: 4  # 中文备注：训练 batch size 固定为 4，保留小 batch 的正则化噪声并避免 bs8 过度平滑。
+  shuffle: true  # 中文备注：训练集每轮打乱，减少小数据集顺序偏差。
+  drop_last: true  # 中文备注：丢弃最后不足一个 batch 的样本，保证 batch 统计形状稳定。
+  use_shared_memory: false  # 中文备注：Windows 下关闭共享内存，避免 DataLoader 兼容性问题。
+  collate_batch: true  # 中文备注：启用 batch 合并逻辑，配合 PadGT 处理多目标检测样本。
+# 中文备注：分隔行，用于把训练 reader 和验证 reader 配置分开。
+EvalReader:  # 中文备注：验证数据读取配置块，不使用训练增强，只做确定性预处理。
+  sample_transforms:  # 中文备注：验证阶段逐张图片预处理列表。
+    - Decode: {}  # 中文备注：解码验证图片为数组。
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}  # 中文备注：固定缩放到 768×768，不保持比例，对齐训练与导出输入。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：验证阶段沿用无归一化策略，保证与推理一致。
+    - Permute: {}  # 中文备注：转换为模型需要的 CHW 格式。
+  batch_size: 1  # 中文备注：验证 batch size 为 1，降低显存波动并贴近单图推理。
+# 中文备注：分隔行，用于把验证 reader 和测试 reader 配置分开。
+TestReader:  # 中文备注：测试和导出阶段输入配置块。
+  inputs_def:  # 中文备注：静态导出或预测时使用的输入形状定义。
+    image_shape: [3, *eval_height, *eval_width]  # 中文备注：输入张量为 3×768×768，对齐安全提交包结构。
+  sample_transforms:  # 中文备注：测试阶段逐张图片预处理列表。
+    - Decode: {}  # 中文备注：解码测试图片为数组。
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}  # 中文备注：测试阶段固定缩放到 768×768。
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}  # 中文备注：测试阶段不做均值方差归一化，保持与训练和 predict.py 一致。
+    - Permute: {}  # 中文备注：转换为模型需要的 CHW 格式。
+  batch_size: 1  # 中文备注：测试 batch size 为 1，匹配安全单图推理策略。
+# 中文备注：分隔行，用于把 reader 配置和总轮数配置分开。
+epoch: 30  # 中文备注：本次实验训练 30 个 epoch，重点抓早期最佳模型，避免长训拟合噪声标注。
+# 中文备注：分隔行，用于把总轮数和学习率配置分开。
+LearningRate:  # 中文备注：学习率调度配置块。
+  # 中文备注：从强 0.9085 checkpoint 短微调，学习率进一步降低以保护原模型能力。
+  base_lr: 0.00002  # 中文备注：基础学习率为 1e-5，低于旧配置，减少对噪声标注和边界漂移的拟合。
+  schedulers:  # 中文备注：学习率调度器列表。
+    - name: CosineDecay  # 中文备注：使用余弦衰减，让后期学习率逐步降低。
+      max_epochs: 30  # 中文备注：余弦衰减总长度与 30 轮短训保持一致。
+    - name: LinearWarmup  # 中文备注：使用线性 warmup，避免刚开始从预训练权重继续训练时梯度过猛。
+      start_factor: 0.  # 中文备注：warmup 初始学习率因子为 0，从极低学习率开始。
+      epochs: 1  # 中文备注：warmup 持续 1 个 epoch，短训场景下避免过多时间停留在极低学习率。
+# 中文备注：分隔行，用于把学习率配置和优化器配置分开。
+OptimizerBuilder:  # 中文备注：优化器构建配置块。
+  optimizer:  # 中文备注：优化器具体参数配置。
+    momentum: 0.9  # 中文备注：动量系数 0.9，沿用 PaddleDetection PP-YOLOE 常规设置。
+    type: Momentum  # 中文备注：使用 Momentum 优化器，和 PP-YOLOE 官方训练习惯一致。
+  regularizer:  # 中文备注：正则化配置，用于控制过拟合。
+    factor: 0.0002  # 中文备注：L2 权重衰减系数为 0.0002，保持和当前小数据微调方案一致。
+    type: L2  # 中文备注：使用 L2 正则化。
+# 中文备注：分隔行，用于把优化器配置和检测头配置分开。
+PPYOLOEHead:  # 中文备注：检测头配置覆盖块，控制分配器、损失权重和 NMS。
+  # 中文备注：从已训练检测器继续微调，较早切换动态分配器以适配当前数据分布。
+  static_assigner_epoch: 5  # 中文备注：前 5 个 epoch 使用静态分配，之后使用 TaskAlignedAssigner。
+  loss_weight: {class: 1.10, iou: 2.3, dfl: 0.80}  # 中文备注：适度降低分类和定位损失权重，减少对错标、漏标和边界漂移的过拟合。
+  assigner:  # 中文备注：正负样本动态分配器配置。
+    name: TaskAlignedAssigner  # 中文备注：使用任务对齐分配器，PP-YOLOE 默认的动态匹配策略。
+    topk: 15  # 中文备注：每个 GT 选择 top 15 候选，提高小目标匹配机会。
+    alpha: 1.0  # 中文备注：分类分数权重系数，保持官方默认思路。
+    beta: 6.0  # 中文备注：定位质量权重系数，强调框质量。
+  nms:  # 中文备注：后处理 NMS 配置，导出模型会写入 infer_cfg。
+    name: MultiClassNMS  # 中文备注：使用多类别 NMS，分别处理 battery、board、fire。
+    nms_top_k: 1200  # 中文备注：NMS 前保留较多候选，降低小火焰低分候选被过早过滤风险。
+    keep_top_k: 400  # 中文备注：NMS 后最多保留 400 个检测结果，适配多火点场景。
+    score_threshold: 0.001  # 中文备注：模型侧阈值保持极低，最终类别阈值交给 predict.py 控制。
+    nms_threshold: 0.75  # 中文备注：NMS 阈值较宽松，减少邻近火焰目标被合并压掉。

@@ -1,21 +1,21 @@
-metric: COCO
-num_classes: 80
-
-TrainDataset:
-  name: COCODataSet
-  image_dir: train2017
-  anno_path: annotations/instances_train2017.json
-  dataset_dir: dataset/coco
-  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
-
-EvalDataset:
-  name: COCODataSet
-  image_dir: val2017
-  anno_path: annotations/instances_val2017.json
-  dataset_dir: dataset/coco
-  allow_empty: true
-
-TestDataset:
-  name: ImageFolder
-  anno_path: annotations/instances_val2017.json # also support txt (like VOC's label_list.txt)
-  dataset_dir: dataset/coco # if set, anno_path will be 'dataset_dir/anno_path'
+metric: COCO  # 中文备注：COCO 数据集默认配置；FireDetect 主配置会覆盖 image_dir、anno_path 和 dataset_dir。
+num_classes: 80  # 中文备注：检测类别数量；本赛题固定为 battery、board、fire 三类。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+TrainDataset:  # 中文备注：训练集配置块；当前使用 jump_holdout_20260605 的 355 张训练图片。
+  name: COCODataSet  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+  image_dir: train2017  # 中文备注：图片目录；相对于 dataset_dir 拼接得到真实图片路径。
+  anno_path: annotations/instances_train2017.json  # 中文备注：标注 JSON 路径；相对于 dataset_dir，决定训练或验证使用哪一份 split。
+  dataset_dir: dataset/coco  # 中文备注：数据集根目录；所有图片和标注路径都基于它解析。
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']  # 中文备注：训练样本字段列表；模型训练需要图片、框、类别和 is_crowd 信息。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+EvalDataset:  # 中文备注：验证集配置块；当前使用跳跃抽样的 50 张验证图片。
+  name: COCODataSet  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+  image_dir: val2017  # 中文备注：图片目录；相对于 dataset_dir 拼接得到真实图片路径。
+  anno_path: annotations/instances_val2017.json  # 中文备注：标注 JSON 路径；相对于 dataset_dir，决定训练或验证使用哪一份 split。
+  dataset_dir: dataset/coco  # 中文备注：数据集根目录；所有图片和标注路径都基于它解析。
+  allow_empty: true  # 中文备注：是否允许空图进入数据集；保留空图可以压制背景误检。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+TestDataset:  # 中文备注：测试/导出数据集配置块；主要给导出和测试阶段提供数据集信息。
+  name: ImageFolder  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+  anno_path: annotations/instances_val2017.json # also support txt (like VOC's label_list.txt)  # 中文备注：标注 JSON 路径；相对于 dataset_dir，决定训练或验证使用哪一份 split。
+  dataset_dir: dataset/coco # if set, anno_path will be 'dataset_dir/anno_path'  # 中文备注：数据集根目录；所有图片和标注路径都基于它解析。

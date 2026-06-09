@@ -1,0 +1,120 @@
+_BASE_: [
+  '../ppyoloe/ppyoloe_plus_crn_s_80e_coco.yml',
+]
+
+# 0.90736-safe baseline specialization.
+# Data basis from 405-image audit:
+# - battery recall is 126/126, so avoid aggressive changes that can hurt it.
+# - fire <4k area recall is 178/197; small fire is the main recall gap.
+# - board edge recall is 19/23; all 4 board FN are middle-left edge targets.
+# Validation uses jump_holdout_20260605, not a contiguous frame range.
+
+log_iter: 10
+snapshot_epoch: 2
+save_dir: output/firedetect_ppyoloe_plus_crn_s_0907base_768_smallfire_edgeboard_jump_holdout_20260605
+weights: output/firedetect_ppyoloe_plus_crn_s_0907base_768_smallfire_edgeboard_jump_holdout_20260605/model_final
+pretrain_weights: output/firedetect_ppyoloe_plus_crn_s_1000e/best_model.pdparams
+
+metric: COCO
+num_classes: 3
+
+TrainDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/jump_holdout_20260605/train.json
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore
+  allow_empty: true
+  empty_ratio: 0.8
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  name: COCODataSet
+  image_dir: images
+  anno_path: annotations/jump_holdout_20260605/val.json
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore
+  allow_empty: true
+
+TestDataset:
+  name: ImageFolder
+  anno_path: annotations/jump_holdout_20260605/test.json
+  dataset_dir: dataset/firedetect_full_A_train_0908_restore
+
+worker_num: 0
+eval_height: &eval_height 768
+eval_width: &eval_width 768
+eval_size: &eval_size [*eval_height, *eval_width]
+
+TrainReader:
+  sample_transforms:
+    - Decode: {}
+    # Low color jitter: keep fire/battery appearance stable.
+    - RandomDistort: {prob: 0.10}
+    # Helps left/right edge balance for board without changing object scale.
+    - RandomFlip: {prob: 0.5}
+  batch_transforms:
+    # High, narrow multiscale range: protects small fire while keeping 768 export.
+    - BatchRandomResize: {target_size: [736, 768, 800], random_size: true, random_interp: true, keep_ratio: false}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+    - PadGT: {}
+  batch_size: 4
+  shuffle: true
+  drop_last: true
+  use_shared_memory: false
+  collate_batch: true
+
+EvalReader:
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+TestReader:
+  inputs_def:
+    image_shape: [3, *eval_height, *eval_width]
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: *eval_size, keep_ratio: false, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - Permute: {}
+  batch_size: 1
+
+epoch: 60
+
+LearningRate:
+  # Low LR for fine-tuning from the 0.90736 best checkpoint.
+  base_lr: 0.00004
+  schedulers:
+    - name: CosineDecay
+      max_epochs: 60
+    - name: LinearWarmup
+      start_factor: 0.
+      epochs: 1
+
+OptimizerBuilder:
+  optimizer:
+    momentum: 0.9
+    type: Momentum
+  regularizer:
+    factor: 0.0002
+    type: L2
+
+PPYOLOEHead:
+  # Short fine-tune from a trained detector: switch to dynamic assignment early.
+  static_assigner_epoch: 5
+  loss_weight: {class: 1.25, iou: 2.7, dfl: 0.85}
+  assigner:
+    name: TaskAlignedAssigner
+    topk: 15
+    alpha: 1.0
+    beta: 6.0
+  nms:
+    name: MultiClassNMS
+    nms_top_k: 1200
+    keep_top_k: 400
+    # Keep low pre-NMS score threshold; final filtering stays in predict.py.
+    score_threshold: 0.001
+    # 405 audit has only 1 duplicate FP; use looser NMS to reduce close-fire suppression.
+    nms_threshold: 0.75

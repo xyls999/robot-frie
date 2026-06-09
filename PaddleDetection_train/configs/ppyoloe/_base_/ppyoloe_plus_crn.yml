@@ -1,86 +1,86 @@
-# PP-YOLOE+ CRN 系列核心结构配置。
-# 本赛题当前使用的 firedetect 配置继承这里，然后通过 depth_mult=0.33、width_mult=0.50 得到 small 版。
-
-# PaddleDetection 里 PP-YOLOE+ 复用 YOLOv3 这个 architecture 容器：
-# forward 流程仍是 backbone -> neck -> head，只是 head 是 anchor-free 的 PPYOLOEHead。
-architecture: YOLOv3
-# sync_bn 用于多卡同步 BN；单卡训练时行为接近普通 BN。
-norm_type: sync_bn
-# EMA 会维护一份滑动平均权重，通常验证/导出更稳定，小数据尤其建议保留。
-use_ema: true
-# ema_decay 越接近 1，平均越慢越稳；训练很短时可略降，长训保持 0.9998。
-ema_decay: 0.9998
-# 不对这些参数做 EMA，避免投影层等特殊权重被平均影响。
-ema_black_list: ['proj_conv.weight']
-# 导出/图优化时的自定义黑名单，保持官方默认即可。
-custom_black_list: ['reduce_mean']
-
-YOLOv3:
-  # 主干网络：CSPResNet，负责提取多尺度语义特征。
-  backbone: CSPResNet
-  # 颈部网络：CustomCSPPAN，把高层语义和低层细节双向融合。
-  neck: CustomCSPPAN
-  # 检测头：PPYOLOEHead，输出类别分数和边框分布。
-  yolo_head: PPYOLOEHead
-  # PP-YOLOE 是 anchor-free，后处理由 head.post_process 完成，因此这里为空。
-  post_process: ~
-
-CSPResNet:
-  # 每个 stage 的 block 数。会被 depth_mult 缩放，s 模型实际更浅。
-  layers: [3, 6, 6, 3]
-  # 各 stage 基础通道数。会被 width_mult 缩放，s 模型实际通道更少。
-  channels: [64, 128, 256, 512, 1024]
-  # 返回第 1/2/3 个特征层给 neck，对应 stride 8/16/32，多尺度检测核心。
-  return_idx: [1, 2, 3]
-  # 大 stem 提升早期特征表达，代价是少量算力。
-  use_large_stem: True
-  # RepVGG 分支里的 alpha 系数，PP-YOLOE+ 默认开启。
-  use_alpha: True
-
-CustomCSPPAN:
-  # neck 输出三层特征的基础通道数，会被 width_mult 缩放。
-  out_channels: [768, 384, 192]
-  # 每个 FPN/PAN stage 重复次数，会被 depth_mult 缩放。
-  stage_num: 1
-  # 每个 stage 内 BasicBlock 数，会被 depth_mult 缩放。
-  block_num: 3
-  # swish 精度通常好于 relu，但略慢；追求极限 FPS 可评估 relu。
-  act: 'swish'
-  # 最高层加入 SPP，扩大感受野，对大火焰/远处场景上下文有帮助。
-  spp: true
-
-PPYOLOEHead:
-  # 三层特征步长：stride 32 语义强，stride 8 对小目标最关键。
-  fpn_strides: [32, 16, 8]
-  # grid_cell_scale/offset 控制训练时候选点/网格生成范围，通常保持官方默认。
-  grid_cell_scale: 5.0
-  grid_cell_offset: 0.5
-  # 前 static_assigner_epoch 使用 ATSS，之后切到 TaskAlignedAssigner。
-  # 小数据短训可设 15~20；官方长训常用 30。
-  static_assigner_epoch: 30
-  # Varifocal Loss 让分类分数更贴近定位质量，是 PP-YOLOE 的重要设计。
-  use_varifocal_loss: True
-  # loss 权重：class 分类、iou 边框重叠、dfl 边框分布。
-  # 框定位不准可略增 iou/dfl；类别错多可略增 class。
-  loss_weight: {class: 1.0, iou: 2.5, dfl: 0.5}
-  static_assigner:
-    name: ATSSAssigner
-    # 每个 gt 在每层候选中选择 topk 作为候选正样本。
-    topk: 9
-  assigner:
-    name: TaskAlignedAssigner
-    # 动态分配正样本数；增大可能提高召回，也可能带来更多误检。
-    topk: 13
-    # alpha/beta 控制分类分数和 IoU 在任务对齐分数中的权重。
-    alpha: 1.0
-    beta: 6.0
-  nms:
-    name: MultiClassNMS
-    # 进入 NMS 前每类最多候选数。
-    nms_top_k: 1000
-    # NMS 后整图最多输出框数。
-    keep_top_k: 300
-    # 保持低阈值，方便导出后由 predict.py 阈值进一步控制 precision/recall。
-    score_threshold: 0.01
-    # 重叠框抑制阈值。火焰目标密集时阈值太低会互相压掉。
-    nms_threshold: 0.7
+# PP-YOLOE+ CRN 系列核心结构配置。  中文备注：原始说明行，保留训练配置设计背景。
+# 本赛题当前使用的 firedetect 配置继承这里，然后通过 depth_mult=0.33、width_mult=0.50 得到 small 版。  中文备注：原始说明行，保留训练配置设计背景。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+# PaddleDetection 里 PP-YOLOE+ 复用 YOLOv3 这个 architecture 容器：  中文备注：原始说明行，保留训练配置设计背景。
+# forward 流程仍是 backbone -> neck -> head，只是 head 是 anchor-free 的 PPYOLOEHead。  中文备注：原始说明行，保留训练配置设计背景。
+architecture: YOLOv3  # 中文备注：模型架构名称；这里对应 PP-YOLOE 系列检测器。
+# sync_bn 用于多卡同步 BN；单卡训练时行为接近普通 BN。  中文备注：原始说明行，保留训练配置设计背景。
+norm_type: sync_bn  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# EMA 会维护一份滑动平均权重，通常验证/导出更稳定，小数据尤其建议保留。  中文备注：原始说明行，保留训练配置设计背景。
+use_ema: true  # 中文备注：是否启用 EMA 权重平滑；有助于提升 best_model 稳定性。
+# ema_decay 越接近 1，平均越慢越稳；训练很短时可略降，长训保持 0.9998。  中文备注：原始说明行，保留训练配置设计背景。
+ema_decay: 0.9998  # 中文备注：EMA 衰减系数；数值越大平滑越强。
+# 不对这些参数做 EMA，避免投影层等特殊权重被平均影响。  中文备注：原始说明行，保留训练配置设计背景。
+ema_black_list: ['proj_conv.weight']  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 导出/图优化时的自定义黑名单，保持官方默认即可。  中文备注：原始说明行，保留训练配置设计背景。
+custom_black_list: ['reduce_mean']  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+YOLOv3:  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 主干网络：CSPResNet，负责提取多尺度语义特征。  中文备注：原始说明行，保留训练配置设计背景。
+  backbone: CSPResNet  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 颈部网络：CustomCSPPAN，把高层语义和低层细节双向融合。  中文备注：原始说明行，保留训练配置设计背景。
+  neck: CustomCSPPAN  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 检测头：PPYOLOEHead，输出类别分数和边框分布。  中文备注：原始说明行，保留训练配置设计背景。
+  yolo_head: PPYOLOEHead  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # PP-YOLOE 是 anchor-free，后处理由 head.post_process 完成，因此这里为空。  中文备注：原始说明行，保留训练配置设计背景。
+  post_process: ~  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+CSPResNet:  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 每个 stage 的 block 数。会被 depth_mult 缩放，s 模型实际更浅。  中文备注：原始说明行，保留训练配置设计背景。
+  layers: [3, 6, 6, 3]  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 各 stage 基础通道数。会被 width_mult 缩放，s 模型实际通道更少。  中文备注：原始说明行，保留训练配置设计背景。
+  channels: [64, 128, 256, 512, 1024]  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 返回第 1/2/3 个特征层给 neck，对应 stride 8/16/32，多尺度检测核心。  中文备注：原始说明行，保留训练配置设计背景。
+  return_idx: [1, 2, 3]  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 大 stem 提升早期特征表达，代价是少量算力。  中文备注：原始说明行，保留训练配置设计背景。
+  use_large_stem: True  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # RepVGG 分支里的 alpha 系数，PP-YOLOE+ 默认开启。  中文备注：原始说明行，保留训练配置设计背景。
+  use_alpha: True  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+CustomCSPPAN:  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # neck 输出三层特征的基础通道数，会被 width_mult 缩放。  中文备注：原始说明行，保留训练配置设计背景。
+  out_channels: [768, 384, 192]  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 每个 FPN/PAN stage 重复次数，会被 depth_mult 缩放。  中文备注：原始说明行，保留训练配置设计背景。
+  stage_num: 1  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 每个 stage 内 BasicBlock 数，会被 depth_mult 缩放。  中文备注：原始说明行，保留训练配置设计背景。
+  block_num: 3  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # swish 精度通常好于 relu，但略慢；追求极限 FPS 可评估 relu。  中文备注：原始说明行，保留训练配置设计背景。
+  act: 'swish'  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 最高层加入 SPP，扩大感受野，对大火焰/远处场景上下文有帮助。  中文备注：原始说明行，保留训练配置设计背景。
+  spp: true  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+PPYOLOEHead:  # 中文备注：检测头配置；影响正样本分配、loss 权重和 NMS 后处理。
+  # 三层特征步长：stride 32 语义强，stride 8 对小目标最关键。  中文备注：原始说明行，保留训练配置设计背景。
+  fpn_strides: [32, 16, 8]  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # grid_cell_scale/offset 控制训练时候选点/网格生成范围，通常保持官方默认。  中文备注：原始说明行，保留训练配置设计背景。
+  grid_cell_scale: 5.0  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  grid_cell_offset: 0.5  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # 前 static_assigner_epoch 使用 ATSS，之后切到 TaskAlignedAssigner。  中文备注：原始说明行，保留训练配置设计背景。
+  # 小数据短训可设 15~20；官方长训常用 30。  中文备注：原始说明行，保留训练配置设计背景。
+  static_assigner_epoch: 30  # 中文备注：静态分配器使用轮数；短微调设 5，让模型较早切到动态分配。
+  # Varifocal Loss 让分类分数更贴近定位质量，是 PP-YOLOE 的重要设计。  中文备注：原始说明行，保留训练配置设计背景。
+  use_varifocal_loss: True  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  # loss 权重：class 分类、iou 边框重叠、dfl 边框分布。  中文备注：原始说明行，保留训练配置设计背景。
+  # 框定位不准可略增 iou/dfl；类别错多可略增 class。  中文备注：原始说明行，保留训练配置设计背景。
+  loss_weight: {class: 1.0, iou: 2.5, dfl: 0.5}  # 中文备注：loss 权重；class/iou/dfl 的比例会影响分类召回和定位质量。
+  static_assigner:  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+    name: ATSSAssigner  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+    # 每个 gt 在每层候选中选择 topk 作为候选正样本。  中文备注：原始说明行，保留训练配置设计背景。
+    topk: 9  # 中文备注：每个 GT 选择的候选正样本数量；增大有助于小目标正样本覆盖。
+  assigner:  # 中文备注：TaskAlignedAssigner 配置块；决定 GT 与候选点的匹配方式。
+    name: TaskAlignedAssigner  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+    # 动态分配正样本数；增大可能提高召回，也可能带来更多误检。  中文备注：原始说明行，保留训练配置设计背景。
+    topk: 13  # 中文备注：每个 GT 选择的候选正样本数量；增大有助于小目标正样本覆盖。
+    # alpha/beta 控制分类分数和 IoU 在任务对齐分数中的权重。  中文备注：原始说明行，保留训练配置设计背景。
+    alpha: 1.0  # 中文备注：分类分数权重；控制分类置信度在正样本分配中的影响。
+    beta: 6.0  # 中文备注：定位分数权重；控制定位质量在正样本分配中的影响。
+  nms:  # 中文备注：NMS 后处理配置；控制候选框过滤和重叠框抑制。
+    name: MultiClassNMS  # 中文备注：组件名称或数据集类型；COCODataSet 表示按 COCO JSON 读取标注。
+    # 进入 NMS 前每类最多候选数。  中文备注：原始说明行，保留训练配置设计背景。
+    nms_top_k: 1000  # 中文备注：NMS 前每类最多候选框数；较大值降低漏检风险但会略慢。
+    # NMS 后整图最多输出框数。  中文备注：原始说明行，保留训练配置设计背景。
+    keep_top_k: 300  # 中文备注：NMS 后整图最多保留框数；控制最终输出框数量上限。
+    # 保持低阈值，方便导出后由 predict.py 阈值进一步控制 precision/recall。  中文备注：原始说明行，保留训练配置设计背景。
+    score_threshold: 0.01  # 中文备注：NMS 前低分阈值；保持 0.001 避免提前丢掉潜在真阳性。
+    # 重叠框抑制阈值。火焰目标密集时阈值太低会互相压掉。  中文备注：原始说明行，保留训练配置设计背景。
+    nms_threshold: 0.7  # 中文备注：NMS IoU 阈值；0.75 更不容易压掉相邻小火焰。

@@ -1,27 +1,27 @@
-_BASE_: [
-  # 官方 COCO 数据集定义。FireDetect 配置会覆盖成自己的 COCO JSON。
-  '../datasets/coco_detection.yml',
-  # 运行时配置：日志、保存、设备、评估等默认项。
-  '../runtime.yml',
-  # 官方 80e 优化器/学习率基线。FireDetect 配置会覆盖 LearningRate/OptimizerBuilder。
-  './_base_/optimizer_80e.yml',
-  # PP-YOLOE+ 核心网络结构：CSPResNet + CustomCSPPAN + PPYOLOEHead。
-  './_base_/ppyoloe_plus_crn.yml',
-  # 官方 reader/数据增强。FireDetect 配置会覆盖输入尺寸、增强、batch 等。
-  './_base_/ppyoloe_plus_reader.yml',
-]
-
-# 每 100 iter 打印一次日志；FireDetect 覆盖为 10，方便小数据训练看进度。
-log_iter: 100
-# 每 5 epoch 保存/评估一次 checkpoint。
-snapshot_epoch: 5
-# 官方默认权重路径。FireDetect 会覆盖到自己的 output/firedetect... 目录。
-weights: output/ppyoloe_plus_crn_s_80e_coco/model_final
-
-# Obj365 预训练权重：物体类别更多，给小数据微调更好的通用视觉特征。
-pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_s_obj365_pretrained.pdparams
-# s 模型缩放系数：
-# depth_mult 控制网络层数/重复块数量，width_mult 控制通道数。
-# 增大能提升上限但更慢、更吃显存；线上 FPS≥20 时不要盲目换 m/l/x。
-depth_mult: 0.33
-width_mult: 0.50
+_BASE_: [  # 中文备注：PP-YOLOE+ CRN-S 官方 80e 基础配置；主配置继承后覆盖数据、学习率和 reader。
+  # 官方 COCO 数据集定义。FireDetect 配置会覆盖成自己的 COCO JSON。  中文备注：原始说明行，保留训练配置设计背景。
+  '../datasets/coco_detection.yml',  # 中文备注：当前启用的子 yml 路径，提供本配置继承的默认参数。
+  # 运行时配置：日志、保存、设备、评估等默认项。  中文备注：原始说明行，保留训练配置设计背景。
+  '../runtime.yml',  # 中文备注：当前启用的子 yml 路径，提供本配置继承的默认参数。
+  # 官方 80e 优化器/学习率基线。FireDetect 配置会覆盖 LearningRate/OptimizerBuilder。  中文备注：原始说明行，保留训练配置设计背景。
+  './_base_/optimizer_80e.yml',  # 中文备注：当前启用的子 yml 路径，提供本配置继承的默认参数。
+  # PP-YOLOE+ 核心网络结构：CSPResNet + CustomCSPPAN + PPYOLOEHead。  中文备注：原始说明行，保留训练配置设计背景。
+  './_base_/ppyoloe_plus_crn.yml',  # 中文备注：当前启用的子 yml 路径，提供本配置继承的默认参数。
+  # 官方 reader/数据增强。FireDetect 配置会覆盖输入尺寸、增强、batch 等。  中文备注：原始说明行，保留训练配置设计背景。
+  './_base_/ppyoloe_plus_reader.yml',  # 中文备注：当前启用的子 yml 路径，提供本配置继承的默认参数。
+]  # 中文备注：列表边界，用于表示继承配置列表的开始或结束。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+# 每 100 iter 打印一次日志；FireDetect 覆盖为 10，方便小数据训练看进度。  中文备注：原始说明行，保留训练配置设计背景。
+log_iter: 100  # 中文备注：日志打印间隔；小数据训练设为 10 可以更密集观察 loss 和速度。
+# 每 5 epoch 保存/评估一次 checkpoint。  中文备注：原始说明行，保留训练配置设计背景。
+snapshot_epoch: 5  # 中文备注：保存和评估间隔；这里设为 2 是为了捕捉早期最佳 checkpoint。
+# 官方默认权重路径。FireDetect 会覆盖到自己的 output/firedetect... 目录。  中文备注：原始说明行，保留训练配置设计背景。
+weights: output/ppyoloe_plus_crn_s_80e_coco/model_final  # 中文备注：默认评估或导出时读取的权重路径；训练时通常由 best_model 或 model_final 覆盖。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+# Obj365 预训练权重：物体类别更多，给小数据微调更好的通用视觉特征。  中文备注：原始说明行，保留训练配置设计背景。
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/pretrained/ppyoloe_crn_s_obj365_pretrained.pdparams  # 中文备注：二次训练的初始化权重；这里从 0.90736 的 best_model 继续微调。
+# s 模型缩放系数：  中文备注：原始说明行，保留训练配置设计背景。
+# depth_mult 控制网络层数/重复块数量，width_mult 控制通道数。  中文备注：原始说明行，保留训练配置设计背景。
+# 增大能提升上限但更慢、更吃显存；线上 FPS≥20 时不要盲目换 m/l/x。  中文备注：原始说明行，保留训练配置设计背景。
+depth_mult: 0.33  # 中文备注：网络深度缩放系数；CRN-S 用较小深度保证速度。
+width_mult: 0.50  # 中文备注：网络宽度缩放系数；CRN-S 用较小通道数保证 FPS。

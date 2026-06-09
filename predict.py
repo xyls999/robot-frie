@@ -15,48 +15,16 @@ import time
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# 让当前提交包中的 PaddleDetection 目录可以被 import；使用脚本绝对路径，避免评测机 cwd 不同。
 sys.path.insert(0, SCRIPT_DIR)
 import json
-
-yaml = None
-np = None
-paddle = None
-Config = None
-create_predictor = None
-preprocess = None
-Resize = None
-NormalizeImage = None
-Permute = None
-PadStride = None
-
-
-def init_runtime():
-    """把重依赖放到主流程 try 内导入，避免顶层 import 失败导致非 0 退出。"""
-    global yaml, np, paddle, Config, create_predictor
-    global preprocess, Resize, NormalizeImage, Permute, PadStride
-    import yaml as _yaml
-    import numpy as _np
-    import paddle as _paddle
-    from paddle.inference import Config as _Config
-    from paddle.inference import create_predictor as _create_predictor
-    from PaddleDetection.deploy.python.preprocess import (
-        preprocess as _preprocess,
-        Resize as _Resize,
-        NormalizeImage as _NormalizeImage,
-        Permute as _Permute,
-        PadStride as _PadStride,
-    )
-    yaml = _yaml
-    np = _np
-    paddle = _paddle
-    Config = _Config
-    create_predictor = _create_predictor
-    preprocess = _preprocess
-    Resize = _Resize
-    NormalizeImage = _NormalizeImage
-    Permute = _Permute
-    PadStride = _PadStride
+import yaml
+import cv2
+import numpy as np
+import paddle
+from paddle.inference import Config
+from paddle.inference import create_predictor
+from PaddleDetection.deploy.python.preprocess import preprocess, Resize, NormalizeImage, Permute, PadStride
+from PaddleDetection.deploy.python.utils import argsparser, Timer, get_current_memory_mb
 
 
 class PredictConfig():
@@ -66,7 +34,6 @@ class PredictConfig():
         deploy_file = os.path.join(model_dir, 'infer_cfg.yml')
         with open(deploy_file) as f:
             yml_conf = yaml.safe_load(f)
-        # infer_cfg.yml 记录了模型结构、预处理流程、类别名、NMS 等导出信息。
         self.arch = yml_conf['arch']
         self.preprocess_infos = yml_conf['Preprocess']
         self.min_subgraph_size = yml_conf.get('min_subgraph_size', 3)
@@ -88,7 +55,6 @@ class PredictConfig():
 def get_test_images(infer_file):
     """读取评测系统传入的图片路径列表，并转成可直接访问的绝对/相对路径。"""
     infer_dir = os.path.dirname(os.path.abspath(infer_file))
-    cwd = os.getcwd()
     with open(infer_file, 'r') as f:
         dirs = f.readlines()
     images = []
@@ -97,13 +63,7 @@ def get_test_images(infer_file):
         if line:
             line = line.replace('\\', '/')
             if not os.path.isabs(line):
-                candidates = [
-                    os.path.join(cwd, line),
-                    os.path.join(infer_dir, line),
-                    os.path.join(SCRIPT_DIR, line),
-                    os.path.join(os.path.dirname(infer_dir), line),
-                ]
-                line = next((p for p in candidates if os.path.exists(p)), candidates[0])
+                line = os.path.join(infer_dir, line)
             images.append(line)
     return images
 
@@ -118,22 +78,18 @@ def write_result(result_path, result_items):
 
 
 def load_predictor(model_dir):
-    """创建 Paddle Inference predictor；优先 GPU，初始化失败时退回 CPU 避免脚本非 0 退出。"""
+    """创建 Paddle Inference predictor；优先 GPU，初始化失败时退回 CPU。"""
     config = Config(
         os.path.join(model_dir, 'model.pdmodel'),
         os.path.join(model_dir, 'model.pdiparams')
     )
-    # 评测要求 FPS，默认走 GPU；显存池设小一些，避免部分评测机初始化失败。
     if paddle.device.is_compiled_with_cuda():
         config.enable_use_gpu(500, 0)
     else:
         config.disable_gpu()
         config.set_cpu_math_library_num_threads(2)
-    # 稳定性优先：部分评测环境下 PP-YOLOE 静态图开启 IR 优化可能触发底层崩溃。
     config.switch_ir_optim(False)
     config.disable_glog_info()
-    # 不启用内存复用优化：模型很小，换取评测机上更稳定的 Paddle Inference 行为。
-    # 使用 zero-copy API 手动拷贝输入输出张量，避免老式 feed/fetch 接口。
     config.switch_use_feed_fetch_ops(False)
     try:
         predictor = create_predictor(config)
@@ -146,7 +102,6 @@ def load_predictor(model_dir):
         config.set_cpu_math_library_num_threads(2)
         config.switch_ir_optim(False)
         config.disable_glog_info()
-        # CPU 兜底同样不启用内存复用优化。
         config.switch_use_feed_fetch_ops(False)
         predictor = create_predictor(config)
     return predictor, config
@@ -158,7 +113,6 @@ def create_inputs(imgs, im_info):
     im_shape = []
     scale_factor = []
     for e in im_info:
-        # im_shape 和 scale_factor 用于模型内部/后处理把坐标映射回原图尺度。
         im_shape.append(np.array((e['im_shape'], )).astype('float32'))
         scale_factor.append(np.array((e['scale_factor'], )).astype('float32'))
     origin_scale_factor = np.concatenate(scale_factor, axis=0)
@@ -170,7 +124,6 @@ def create_inputs(imgs, im_info):
     padding_imgs_scale = []
     for img in imgs:
         im_c, im_h, im_w = img.shape[:]
-        # 如果未来启用 batch 推理，不同尺寸图片需要 pad 到同一个 H/W 才能 stack。
         padding_im = np.zeros(
             (im_c, max_shape_h, max_shape_w), dtype=np.float32)
         padding_im[:, :im_h, :im_w] = np.array(img, dtype=np.float32)
@@ -192,6 +145,8 @@ class Detector(object):
     def __init__(self, pred_config, model_dir):
         self.pred_config = pred_config
         self.predictor, self.config = load_predictor(model_dir)
+        self.det_times = Timer()
+        self.cpu_mem, self.gpu_mem, self.gpu_util = 0, 0, 0
         self.preprocess_ops = self.get_ops()
 
     def get_ops(self):
@@ -200,7 +155,6 @@ class Detector(object):
         for op_info in self.pred_config.preprocess_infos:
             new_op_info = op_info.copy()
             op_type = new_op_info.pop('type')
-            # op_type 例如 Resize/NormalizeImage/Permute，对应 preprocess.py 中的类名。
             preprocess_ops.append(eval(op_type)(**new_op_info))
         return preprocess_ops
 
@@ -213,8 +167,6 @@ class Detector(object):
         self.predictor.run()
         output_names = self.predictor.get_output_names()
         num_outs = int(len(output_names) / 2)
-        # PaddleDetection 检测模型常见输出：boxes 和 boxes_num。
-        # boxes 每行通常是 [class_id, score, x1, y1, x2, y2]。
         np_boxes = self.predictor.get_output_handle(
             output_names[0]).copy_to_cpu()
         np_boxes_num = self.predictor.get_output_handle(
@@ -222,186 +174,64 @@ class Detector(object):
         return dict(boxes=np_boxes, boxes_num=np_boxes_num)
 
 
-def iou_xyxy(box_a, box_b):
-    """计算两个 xyxy 框的 IoU，用于提交端额外轻量 NMS。"""
-    x1 = max(box_a[0], box_b[0])
-    y1 = max(box_a[1], box_b[1])
-    x2 = min(box_a[2], box_b[2])
-    y2 = min(box_a[3], box_b[3])
-    inter_w = max(0.0, x2 - x1)
-    inter_h = max(0.0, y2 - y1)
-    inter = inter_w * inter_h
-    if inter <= 0.0:
-        return 0.0
-    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
-    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
-    denom = area_a + area_b - inter
-    return inter / denom if denom > 0.0 else 0.0
-
-
-def apply_extra_nms(items, nms_iou):
-    """对模型内置 NMS 后的结果再做一层保守 class-wise NMS，只删除高度重叠重复框。"""
-    if nms_iou is None:
-        return items
-    kept_all = []
-    for cls_id in (1, 2, 3):
-        cls_items = [item for item in items if item["type"] == cls_id]
-        cls_items.sort(key=lambda item: item.get("_score", 0.0), reverse=True)
-        kept = []
-        for item in cls_items:
-            box = [item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"]]
-            duplicate = False
-            for old in kept:
-                old_box = [old["x"], old["y"], old["x"] + old["width"], old["y"] + old["height"]]
-                if iou_xyxy(box, old_box) >= nms_iou:
-                    duplicate = True
-                    break
-            if not duplicate:
-                kept.append(item)
-        kept_all.extend(kept)
-    kept_all.sort(key=lambda item: item.get("_order", 0))
-    return kept_all
-
-
-def append_detection_items(result_items, image_ids, det_results, thresholds, min_area, extra_nms_iou):
-    """把一个 batch 的 PaddleDetection 输出转成赛题 JSON 条目。"""
-    start = 0
-    boxes_num = det_results['boxes_num']
-    boxes = det_results['boxes']
-    for image_idx, image_id in enumerate(image_ids):
-        im_bboxes_num = int(boxes_num[image_idx])
-        end = start + im_bboxes_num
-        image_items = []
-        if im_bboxes_num > 0:
-            bbox_results = boxes[start:end, 2:]
-            id_results = boxes[start:end, 0]
-            score_results = boxes[start:end, 1]
-            for idx in range(im_bboxes_num):
-                score = float(score_results[idx])
-                cls_id = int(id_results[idx]) + 1
-                if cls_id not in (1, 2, 3):
-                    continue
-                cls_threshold = thresholds.get(cls_id, thresholds.get("default", 0.38))
-                if score < cls_threshold:
-                    continue
-                x1 = float(bbox_results[idx][0])
-                y1 = float(bbox_results[idx][1])
-                x2 = float(bbox_results[idx][2])
-                y2 = float(bbox_results[idx][3])
-                if not np.isfinite([x1, y1, x2, y2]).all():
-                    continue
-                x = max(0.0, min(x1, x2))
-                y = max(0.0, min(y1, y2))
-                width = abs(x2 - x1)
-                height = abs(y2 - y1)
-                if width <= 0.0 or height <= 0.0:
-                    continue
-                if width * height < min_area.get(cls_id, 0.0):
-                    continue
-                image_items.append({
-                    "image_id": str(image_id),
-                    "type": int(cls_id),
-                    "x": float(x),
-                    "y": float(y),
-                    "width": float(width),
-                    "height": float(height),
-                    "segmentation": [],
-                    "_score": score,
-                    "_order": idx
-                })
-        for item in apply_extra_nms(image_items, extra_nms_iou):
-            item.pop("_score", None)
-            item.pop("_order", None)
-            result_items.append(item)
-        start = end
-
-
-def predict_image(
-        detector,
-        image_list,
-        result_path,
-        thresholds,
-        min_area,
-        extra_nms_iou,
-        batch_size=4):
-    """按 batch 推理，并按赛题指定 JSON schema 写出结果。"""
-    result_items = []
-    batch_images = []
-    batch_infos = []
-    batch_ids = []
-
-    def flush_batch():
-        if not batch_images:
-            return
-        inputs = create_inputs(batch_images, batch_infos)
-        det_results = detector.predict(inputs)
-        append_detection_items(
-            result_items, batch_ids, det_results, thresholds, min_area, extra_nms_iou)
-        batch_images.clear()
-        batch_infos.clear()
-        batch_ids.clear()
-
+def predict_image(detector, image_list, result_path, threshold):
+    """逐张图片推理，并按赛题指定 JSON schema 写出结果。"""
+    c_results = {"result": []}
     for im_path in image_list:
         if not os.path.exists(im_path):
-            # data_txt 中某张图片路径异常时跳过该图，保证脚本整体正常退出。
             continue
-        # preprocess 会按 infer_cfg.yml 中的顺序执行 Resize/Normalize/Permute 等操作。
+        input_im_lst = []
+        input_im_info_lst = []
         try:
             im, im_info = preprocess(im_path, detector.preprocess_ops)
         except Exception:
             continue
-        # 赛题要求 image_id 是文件名本身，不包含目录和扩展名。
-        batch_images.append(im)
-        batch_infos.append(im_info)
-        batch_ids.append(os.path.splitext(os.path.basename(im_path))[0])
-        if len(batch_images) >= batch_size:
-            try:
-                flush_batch()
-            except Exception:
-                batch_images.clear()
-                batch_infos.clear()
-                batch_ids.clear()
-    try:
-        flush_batch()
-    except Exception:
-        pass
-    write_result(result_path, result_items)
+        input_im_lst.append(im)
+        input_im_info_lst.append(im_info)
+        inputs = create_inputs(input_im_lst, input_im_info_lst)
+        image_id = os.path.basename(im_path).split('.')[0]
+        try:
+            det_results = detector.predict(inputs)
+            im_bboxes_num = det_results['boxes_num'][0]
+            if im_bboxes_num > 0:
+                bbox_results  = det_results['boxes'][0:im_bboxes_num, 2:]
+                id_results    = det_results['boxes'][0:im_bboxes_num, 0]
+                score_results = det_results['boxes'][0:im_bboxes_num, 1]
+                for idx in range(im_bboxes_num):
+                    if float(score_results[idx]) >= threshold:
+                        c_results["result"].append({
+                            "image_id": image_id,
+                            "type": int(id_results[idx]) + 1,
+                            "x": float(bbox_results[idx][0]),
+                            "y": float(bbox_results[idx][1]),
+                            "width":  float(bbox_results[idx][2]) - float(bbox_results[idx][0]),
+                            "height": float(bbox_results[idx][3]) - float(bbox_results[idx][1]),
+                            "segmentation": []
+                        })
+        except Exception:
+            continue
+    write_result(result_path, c_results["result"])
     print("Results written to", result_path)
 
 
-def main(infer_txt, result_path, det_model_path, thresholds, min_area, extra_nms_iou):
+def main(infer_txt, result_path, det_model_path, threshold):
     """评测入口的主流程：加载配置和模型，读取图片列表，生成结果文件。"""
     pred_config = PredictConfig(det_model_path)
     detector = Detector(pred_config, det_model_path)
     img_list = get_test_images(infer_txt)
-    predict_image(detector, img_list, result_path, thresholds, min_area, extra_nms_iou)
+    predict_image(detector, img_list, result_path, threshold)
 
 
 if __name__ == '__main__':
     start_time = time.time()
-    # 评测提交包约定模型固定放在根目录 model/ 下。
     det_model_path = os.path.join(SCRIPT_DIR, "model")
-    # clone1000e best epoch150：405 全量按比赛 mean-F1 扫描得到的类别阈值。
-    thresholds = {"default": 0.38, 1: 0.33, 2: 0.42, 3: 0.49}
-    min_area = {1: 0.0, 2: 0.0, 3: 0.0}
-    # 常规稳妥版不叠加额外 NMS，只使用导出模型自身的 NMS。
-    extra_nms_iou = None
-    if len(sys.argv) != 3:
-        # 评测系统会传入两个参数；本分支只兜底异常调用，仍然保证退出码为 0。
-        fallback_path = sys.argv[2] if len(sys.argv) > 2 else "result.json"
-        write_result(fallback_path, [])
-        sys.exit(0)
-
-    infer_txt = sys.argv[1]
+    threshold = 0.57
+    paddle.enable_static()
+    infer_txt   = sys.argv[1]
     result_path = sys.argv[2]
     try:
-        # Paddle Inference 静态图模型需要启用静态图模式。
-        init_runtime()
-        paddle.enable_static()
-        main(infer_txt, result_path, det_model_path, thresholds, min_area, extra_nms_iou)
+        main(infer_txt, result_path, det_model_path, threshold)
         print('total time:', time.time() - start_time)
     except Exception:
-        # 任何 Python 层异常都写出合法空结果，避免评测系统因非 0 返回码直接判失败。
         write_result(result_path, [])
         print("Fallback empty result written to", result_path)
-        sys.exit(0)

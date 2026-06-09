@@ -1,0 +1,86 @@
+# PP-YOLOE+ CRN 系列核心结构配置。
+# 本赛题当前使用的 firedetect 配置继承这里，然后通过 depth_mult=0.33、width_mult=0.50 得到 small 版。
+
+# PaddleDetection 里 PP-YOLOE+ 复用 YOLOv3 这个 architecture 容器：
+# forward 流程仍是 backbone -> neck -> head，只是 head 是 anchor-free 的 PPYOLOEHead。
+architecture: YOLOv3
+# sync_bn 用于多卡同步 BN；单卡训练时行为接近普通 BN。
+norm_type: sync_bn
+# EMA 会维护一份滑动平均权重，通常验证/导出更稳定，小数据尤其建议保留。
+use_ema: true
+# ema_decay 越接近 1，平均越慢越稳；训练很短时可略降，长训保持 0.9998。
+ema_decay: 0.9998
+# 不对这些参数做 EMA，避免投影层等特殊权重被平均影响。
+ema_black_list: ['proj_conv.weight']
+# 导出/图优化时的自定义黑名单，保持官方默认即可。
+custom_black_list: ['reduce_mean']
+
+YOLOv3:
+  # 主干网络：CSPResNet，负责提取多尺度语义特征。
+  backbone: CSPResNet
+  # 颈部网络：CustomCSPPAN，把高层语义和低层细节双向融合。
+  neck: CustomCSPPAN
+  # 检测头：PPYOLOEHead，输出类别分数和边框分布。
+  yolo_head: PPYOLOEHead
+  # PP-YOLOE 是 anchor-free，后处理由 head.post_process 完成，因此这里为空。
+  post_process: ~
+
+CSPResNet:
+  # 每个 stage 的 block 数。会被 depth_mult 缩放，s 模型实际更浅。
+  layers: [3, 6, 6, 3]
+  # 各 stage 基础通道数。会被 width_mult 缩放，s 模型实际通道更少。
+  channels: [64, 128, 256, 512, 1024]
+  # 返回第 1/2/3 个特征层给 neck，对应 stride 8/16/32，多尺度检测核心。
+  return_idx: [1, 2, 3]
+  # 大 stem 提升早期特征表达，代价是少量算力。
+  use_large_stem: True
+  # RepVGG 分支里的 alpha 系数，PP-YOLOE+ 默认开启。
+  use_alpha: True
+
+CustomCSPPAN:
+  # neck 输出三层特征的基础通道数，会被 width_mult 缩放。
+  out_channels: [768, 384, 192]
+  # 每个 FPN/PAN stage 重复次数，会被 depth_mult 缩放。
+  stage_num: 1
+  # 每个 stage 内 BasicBlock 数，会被 depth_mult 缩放。
+  block_num: 3
+  # swish 精度通常好于 relu，但略慢；追求极限 FPS 可评估 relu。
+  act: 'swish'
+  # 最高层加入 SPP，扩大感受野，对大火焰/远处场景上下文有帮助。
+  spp: true
+
+PPYOLOEHead:
+  # 三层特征步长：stride 32 语义强，stride 8 对小目标最关键。
+  fpn_strides: [32, 16, 8]
+  # grid_cell_scale/offset 控制训练时候选点/网格生成范围，通常保持官方默认。
+  grid_cell_scale: 5.0
+  grid_cell_offset: 0.5
+  # 前 static_assigner_epoch 使用 ATSS，之后切到 TaskAlignedAssigner。
+  # 小数据短训可设 15~20；官方长训常用 30。
+  static_assigner_epoch: 30
+  # Varifocal Loss 让分类分数更贴近定位质量，是 PP-YOLOE 的重要设计。
+  use_varifocal_loss: True
+  # loss 权重：class 分类、iou 边框重叠、dfl 边框分布。
+  # 框定位不准可略增 iou/dfl；类别错多可略增 class。
+  loss_weight: {class: 1.0, iou: 2.5, dfl: 0.5}
+  static_assigner:
+    name: ATSSAssigner
+    # 每个 gt 在每层候选中选择 topk 作为候选正样本。
+    topk: 9
+  assigner:
+    name: TaskAlignedAssigner
+    # 动态分配正样本数；增大可能提高召回，也可能带来更多误检。
+    topk: 13
+    # alpha/beta 控制分类分数和 IoU 在任务对齐分数中的权重。
+    alpha: 1.0
+    beta: 6.0
+  nms:
+    name: MultiClassNMS
+    # 进入 NMS 前每类最多候选数。
+    nms_top_k: 1000
+    # NMS 后整图最多输出框数。
+    keep_top_k: 300
+    # 保持低阈值，方便导出后由 predict.py 阈值进一步控制 precision/recall。
+    score_threshold: 0.01
+    # 重叠框抑制阈值。火焰目标密集时阈值太低会互相压掉。
+    nms_threshold: 0.7

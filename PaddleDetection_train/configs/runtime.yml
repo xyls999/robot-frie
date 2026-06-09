@@ -1,17 +1,17 @@
-use_gpu: true
-use_xpu: false
-use_mlu: false
-use_npu: false
-use_gcu: false
-log_iter: 20
-save_dir: output
-snapshot_epoch: 1
-print_flops: false
-print_params: false
-
-# Exporting the model
-export:
-  post_process: True  # Whether post-processing is included in the network when export model.
-  nms: True           # Whether NMS is included in the network when export model.
-  benchmark: False    # It is used to testing model performance, if set `True`, post-process and NMS will not be exported.
-  fuse_conv_bn: False
+use_gpu: true  # 中文备注：运行时配置；控制设备、日志、保存、评估等全局默认行为。
+use_xpu: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+use_mlu: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+use_npu: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+use_gcu: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+log_iter: 20  # 中文备注：日志打印间隔；小数据训练设为 10 可以更密集观察 loss 和速度。
+save_dir: output  # 中文备注：训练输出目录；best_model、model_final 和中间 epoch 都保存在这里。
+snapshot_epoch: 1  # 中文备注：保存和评估间隔；这里设为 2 是为了捕捉早期最佳 checkpoint。
+print_flops: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+print_params: false  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+# 中文备注：空行，用于分隔配置块，让配置结构更清晰。
+# Exporting the model  中文备注：原始说明行，保留训练配置设计背景。
+export:  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  post_process: True  # Whether post-processing is included in the network when export model.  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  nms: True           # Whether NMS is included in the network when export model.  # 中文备注：NMS 后处理配置；控制候选框过滤和重叠框抑制。
+  benchmark: False    # It is used to testing model performance, if set `True`, post-process and NMS will not be exported.  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
+  fuse_conv_bn: False  # 中文备注：保留该原始配置行，确保训练、导出和推理行为不变。
